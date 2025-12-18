@@ -1,0 +1,56 @@
+"""AI Tutor Platform - Schemas initialization."""
+from app.schemas.user import (
+    UserCreate,
+    UserLogin,
+    UserResponse,
+    UserProfile,
+    UserUpdate,
+    TokenResponse,
+    TokenRefresh,
+    PasswordChange,
+    PasswordReset,
+    PasswordResetConfirm,
+    StudentCreate,
+    StudentResponse,
+    StudentUpdate,
+)
+from app.schemas.curriculum import (
+    SubjectCreate,
+    SubjectResponse,
+    SubjectWithTopics,
+    TopicCreate,
+    TopicResponse,
+    TopicWithSubtopics,
+    SubtopicCreate,
+    SubtopicResponse,
+    ProgressResponse,
+    ProgressSummary,
+)
+
+__all__ = [
+    # User schemas
+    "UserCreate",
+    "UserLogin",
+    "UserResponse",
+    "UserProfile",
+    "UserUpdate",
+    "TokenResponse",
+    "TokenRefresh",
+    "PasswordChange",
+    "PasswordReset",
+    "PasswordResetConfirm",
+    "StudentCreate",
+    "StudentResponse",
+    "StudentUpdate",
+    # Curriculum schemas
+    "SubjectCreate",
+    "SubjectResponse",
+    "SubjectWithTopics",
+    "TopicCreate",
+    "TopicResponse",
+    "TopicWithSubtopics",
+    "SubtopicCreate",
+    "SubtopicResponse",
+    "ProgressResponse",
+    "ProgressSummary",
+]
