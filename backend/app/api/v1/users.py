@@ -220,15 +220,15 @@ async def delete_student(
 @router.patch(
     "/students/me",
     response_model=StudentResponse,
-    summary="Update current student",
-    description="Update the first student profile for the current user. Convenience endpoint for Settings page.",
+    summary="Update or create current student",
+    description="Update the first student profile for the current user, or create one if none exists. Convenience endpoint for Settings page.",
 )
 async def update_current_student(
     student_update: StudentUpdate,
     current_user: CurrentUser,
     db: DbSession,
 ) -> StudentResponse:
-    """Update the first student for the current user (convenience for Settings page)."""
+    """Update the first student for the current user, or create one if none exists."""
     # Get the first student for this user
     result = await db.execute(
         select(Student).where(Student.parent_id == current_user.id).limit(1)
@@ -236,11 +236,31 @@ async def update_current_student(
     student = result.scalar_one_or_none()
     
     if not student:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No student profile found for this user",
+        # Create a new student profile if one doesn't exist
+        # Use the user's name as default, and require grade_level from the update
+        update_data = student_update.model_dump(exclude_unset=True)
+        
+        if "grade_level" not in update_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="grade_level is required when creating a new student profile",
+            )
+        
+        student = Student(
+            parent_id=current_user.id,
+            first_name=update_data.get("first_name", current_user.first_name),
+            last_name=update_data.get("last_name", current_user.last_name),
+            grade_level=update_data["grade_level"],
+            display_name=update_data.get("display_name"),
+            theme_color=update_data.get("theme_color", "#6366f1"),
         )
+        db.add(student)
+        await db.flush()
+        await db.refresh(student)
+        
+        return StudentResponse.model_validate(student)
     
+    # Update existing student
     update_data = student_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(student, field, value)
