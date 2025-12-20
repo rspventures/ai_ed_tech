@@ -1,6 +1,6 @@
 # AI Tutor Platform 🎓
 
-An AI-powered educational platform for K-12 students featuring personalized learning, adaptive assessments, and gamification.
+An AI-powered educational platform for K-12 students (Grades 1-7) featuring personalized learning, adaptive assessments, and gamification. Built with complete CBSE/NCERT aligned curriculum.
 
 ## Features
 
@@ -41,6 +41,10 @@ An AI-powered educational platform for K-12 students featuring personalized lear
    ```bash
    docker-compose up -d --build
    ```
+
+   > **Note:** On first startup, the backend automatically seeds the complete CBSE 
+   > curriculum (Mathematics, Science, English for Grades 1-7) when the database 
+   > is empty. Subsequent restarts skip this since data already exists.
 
 5. **Access the app**
    - Frontend: http://localhost:3000
@@ -98,9 +102,9 @@ docker-compose down
    alembic upgrade head
    ```
 
-6. **Seed the database**
+6. **Seed the database** (full CBSE curriculum)
    ```bash
-   python -m app.scripts.seed_curriculum
+   python -m app.scripts.seed_curriculum_cbse_full
    ```
 
 7. **Start the server**
@@ -219,6 +223,27 @@ docker-compose up -d --build
 ### LLM Timeout Issues
 
 If questions take too long to generate, check your API key and network connection.
+
+### No Subjects Showing
+
+If no subjects appear in the app, the curriculum may not have been seeded. Run:
+```bash
+docker exec -it ai_tutor_backend python -m app.scripts.seed_curriculum_cbse_full
+```
+
+---
+
+## Curriculum
+
+The platform includes a complete CBSE/NCERT aligned curriculum:
+
+| Subject | Grades | Topics | Description |
+|---------|--------|--------|-------------|
+| Mathematics | 1-7 | 46+ | Numbers, Operations, Fractions, Geometry, Algebra, Data Handling |
+| Science | 1-7 | 56+ | Plants, Animals, Human Body, Matter, Energy, Environment |
+| English | 1-7 | 42+ | Grammar, Vocabulary, Reading Comprehension, Writing Skills |
+
+All topics include multiple subtopics with difficulty levels (easy, medium, hard) for adaptive learning.
 
 ---
 

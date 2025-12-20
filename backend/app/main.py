@@ -28,9 +28,29 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Startup] Telemetry initialization skipped: {e}")
     
-    # Initialize database
-    if settings.DEBUG:
-        await init_db()
+    # Initialize database tables
+    await init_db()
+    print("[Startup] Database tables initialized")
+    
+    # Auto-seed curriculum if database is empty (first deployment)
+    try:
+        from sqlalchemy import select, func
+        from app.core.database import async_session_maker
+        from app.models.curriculum import Subject
+        
+        async with async_session_maker() as session:
+            result = await session.execute(select(func.count(Subject.id)))
+            subject_count = result.scalar()
+            
+            if subject_count == 0:
+                print("[Startup] No subjects found - seeding CBSE curriculum data...")
+                from app.scripts.seed_curriculum_cbse_full import seed_full_curriculum
+                await seed_full_curriculum()
+                print("[Startup] ✓ Full CBSE curriculum seeding complete!")
+            else:
+                print(f"[Startup] Curriculum already seeded ({subject_count} subjects found)")
+    except Exception as e:
+        print(f"[Startup] Auto-seed check failed (non-fatal): {e}")
     
     yield
     
