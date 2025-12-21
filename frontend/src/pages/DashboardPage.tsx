@@ -229,6 +229,30 @@ export default function DashboardPage() {
                                 <GamificationBar compact />
                             </div>
 
+                            {/* Study Materials / Documents Link */}
+                            <button
+                                onClick={() => navigate('/documents')}
+                                className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 
+                                           border border-emerald-500/30 rounded-lg text-emerald-300 hover:text-white 
+                                           hover:from-emerald-500/30 hover:to-teal-500/30 transition-all"
+                                title="Study Materials"
+                            >
+                                <BookOpen className="w-4 h-4" />
+                                <span className="hidden sm:inline text-sm font-medium">Documents</span>
+                            </button>
+
+                            {/* Visual Explainer Link */}
+                            <button
+                                onClick={() => navigate('/visuals')}
+                                className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-pink-500/20 to-purple-500/20 
+                                           border border-pink-500/30 rounded-lg text-pink-300 hover:text-white 
+                                           hover:from-pink-500/30 hover:to-purple-500/30 transition-all"
+                                title="Visual Explainer"
+                            >
+                                <Sparkles className="w-4 h-4" />
+                                <span className="hidden sm:inline text-sm font-medium">Visuals</span>
+                            </button>
+
                             {/* Parent Dashboard Link */}
                             <button
                                 onClick={() => navigate('/parent')}
@@ -240,6 +264,7 @@ export default function DashboardPage() {
                                 <Users className="w-4 h-4" />
                                 <span className="hidden sm:inline text-sm font-medium">Parent View</span>
                             </button>
+
 
                             <div className="flex items-center gap-3">
                                 {/* Personalized Avatar - Using student's selected avatar and theme color */}

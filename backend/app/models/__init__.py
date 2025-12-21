@@ -11,6 +11,12 @@ from app.models.lesson import GeneratedLesson, StudentLessonProgress
 from app.models.assessment import AssessmentResult
 from app.models.exam import ExamResult
 from app.models.test import TestResult
+from app.models.document import (
+    UserDocument,
+    DocumentChunk,
+    GeneratedImage,
+    DocumentStatus,
+)
 
 
 __all__ = [
@@ -32,5 +38,11 @@ __all__ = [
     "AssessmentResult",
     "ExamResult",
     "TestResult",
+    # Document models (RAG)
+    "UserDocument",
+    "DocumentChunk",
+    "GeneratedImage",
+    "DocumentStatus",
 ]
+
 

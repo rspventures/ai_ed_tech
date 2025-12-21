@@ -11,6 +11,8 @@ import TestPage from '@/pages/TestPage'
 import StudyPage from '@/pages/StudyPage'
 import ParentDashboardPage from '@/pages/ParentDashboardPage'
 import SettingsPage from '@/pages/SettingsPage'
+import DocumentsPage from '@/pages/DocumentsPage'
+import VisualsPage from '@/pages/VisualsPage'
 
 function App() {
     return (
@@ -96,6 +98,22 @@ function App() {
                         element={
                             <ProtectedRoute>
                                 <SettingsPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/documents"
+                        element={
+                            <ProtectedRoute>
+                                <DocumentsPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/visuals"
+                        element={
+                            <ProtectedRoute>
+                                <VisualsPage />
                             </ProtectedRoute>
                         }
                     />
