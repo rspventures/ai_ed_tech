@@ -84,6 +84,37 @@ docker-compose up -d --build
 
 ---
 
+## 🔭 LLM Observability (Langfuse)
+
+The platform includes **Langfuse v3** for LLM observability, tracing, and analytics.
+
+### Accessing Langfuse
+- **URL:** http://localhost:3001
+- **Default Credentials:** `admin@langfuse.com` / `password`
+
+### Auto-Provisioned Keys
+Docker Compose automatically creates a project with pre-configured API keys:
+- **Public Key:** `pk-lf-dev`
+- **Secret Key:** `sk-lf-dev`
+
+These keys are used by default - no manual setup needed for local development!
+
+### Customizing Keys (Optional)
+To use your own keys:
+1. Login to Langfuse at http://localhost:3001
+2. Go to **Settings → API Keys** and create new keys
+3. Add them to your `.env` file:
+   ```env
+   LANGFUSE_PUBLIC_KEY=pk-lf-your-key
+   LANGFUSE_SECRET_KEY=sk-lf-your-key
+   ```
+
+### What's Tracked
+- All LLM calls (prompts, completions, tokens, cost)
+- Agent execution traces
+- Error rates and latency
+- User feedback (when implemented)
+
 ## 💻 Running from IDE (Development)
 
 ### Prerequisites
@@ -217,6 +248,10 @@ AITutorPlatform/
 | `SECRET_KEY` | JWT secret key | Yes |
 | `LLM_PROVIDER` | AI provider: "openai" or "anthropic" | No (default: openai) |
 | `LLM_TIMEOUT_SECONDS` | Timeout for AI requests | No (default: 60) |
+| `LANGFUSE_ENABLED` | Enable LLM observability | No (default: true) |
+| `LANGFUSE_HOST` | Langfuse server URL | No (default: http://langfuse:3000) |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse API public key | No (auto-provisioned) |
+| `LANGFUSE_SECRET_KEY` | Langfuse API secret key | No (auto-provisioned) |
 
 ---
 
