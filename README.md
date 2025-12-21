@@ -23,6 +23,16 @@ An AI-powered educational platform for K-12 students (Grades 1-12) featuring per
 - 🛡️ **Content Guardrails** - Multi-layer safety for student-appropriate content
 - 📚 **Grade-Appropriate Styling** - Images styled for specific grade levels
 
+### Advanced Interaction (Phase 3)
+- 🗣️ **Voice Mode** - Real-time voice conversation with AI Tutor (OpenAI Realtime API)
+- 🔍 **Safety Pipeline** - PII redaction, injection detection, and content moderation
+- 🔭 **Observability** - Full tracing of AI thoughts via Langfuse & Jaeger
+
+### Teacher Suite (Coming Soon 🚧)
+- 👩‍🏫 **Teacher Dashboard** - Class management and analytics
+- 📝 **Homework Push** - Assign topic-based practice with auto-grading
+- 🤖 **AI Lesson Planner** - Generate curriculum-aligned lesson plans
+
 ### Parent Dashboard
 - 👨‍👩‍👧 **Child Progress Monitoring** - Track children's learning journey
 - 📊 **Performance Analytics** - View scores, time spent, and mastery levels
