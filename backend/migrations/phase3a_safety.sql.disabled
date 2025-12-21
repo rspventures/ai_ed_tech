@@ -1,0 +1,26 @@
+-- Phase 3A: Safety Audit Logs Migration
+-- Creates table for COPPA/FERPA compliance logging
+
+-- Create safety_audit_logs table
+CREATE TABLE IF NOT EXISTS safety_audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_type VARCHAR(50) NOT NULL,
+    student_id UUID REFERENCES students(id) ON DELETE SET NULL,
+    session_id VARCHAR(100),
+    event_data JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Create indexes for efficient querying
+CREATE INDEX IF NOT EXISTS idx_safety_audit_event_type ON safety_audit_logs(event_type);
+CREATE INDEX IF NOT EXISTS idx_safety_audit_student ON safety_audit_logs(student_id);
+CREATE INDEX IF NOT EXISTS idx_safety_audit_created ON safety_audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_safety_audit_session ON safety_audit_logs(session_id);
+
+-- Composite index for common compliance queries
+CREATE INDEX IF NOT EXISTS idx_safety_audit_student_type_date 
+ON safety_audit_logs(student_id, event_type, created_at DESC);
+
+-- Add comment for documentation
+COMMENT ON TABLE safety_audit_logs IS 'Audit logs for safety and compliance events (COPPA/FERPA). Never stores actual PII.';
+COMMENT ON COLUMN safety_audit_logs.event_data IS 'Sanitized event metadata. Contains hashes, counts, and categories but never raw PII.';

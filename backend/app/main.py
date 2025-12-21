@@ -30,7 +30,16 @@ async def lifespan(app: FastAPI):
     
     # Initialize database tables
     await init_db()
+    # Initialize database tables
+    await init_db()
     print("[Startup] Database tables initialized")
+
+    # Initialize Langfuse Observability
+    try:
+        from app.ai.core import init_observability
+        init_observability()
+    except Exception as e:
+        print(f"[Startup] Langfuse initialization failed: {e}")
     
     # Auto-seed curriculum if database is empty (first deployment)
     try:

@@ -3,6 +3,7 @@ AI Tutor Platform - Unified LLM Client
 Centralized LLM access with telemetry, guardrails, and reliability features.
 """
 import json
+import time
 from typing import Optional, Dict, Any, List, Union
 from dataclasses import dataclass
 
@@ -12,6 +13,7 @@ from langchain_core.output_parsers import StrOutputParser
 from app.core.config import settings
 from app.ai.core.telemetry import get_tracer, trace_llm_call, agent_span
 from app.ai.core.guardrails import validate_agent_input, validate_agent_output
+from app.ai.core.observability import get_observer, calculate_cost
 
 
 @dataclass
@@ -167,6 +169,30 @@ class LLMClient:
                 completion_tokens=tokens_completion,
                 total_tokens=tokens_total,
             )
+            
+            # Phase 3B: Langfuse Observability
+            observer = get_observer()
+            if observer.is_enabled:
+                langfuse_trace = observer.create_trace(
+                    name=f"{agent_name}.generate",
+                    metadata={
+                        "model": self.model,
+                        "provider": self.provider,
+                        "temperature": self.temperature
+                    }
+                )
+                if langfuse_trace:
+                    cost_usd = calculate_cost(self.model, tokens_prompt, tokens_completion)
+                    observer.create_generation(
+                        trace=langfuse_trace,
+                        name="llm_completion",
+                        model=self.model,
+                        input=sanitized_prompt[:2000],
+                        output=content[:2000],
+                        input_tokens=tokens_prompt,
+                        output_tokens=tokens_completion,
+                        metadata={"cost_usd": cost_usd}
+                    )
             
             # Apply output guardrails
             if self.enable_guardrails:

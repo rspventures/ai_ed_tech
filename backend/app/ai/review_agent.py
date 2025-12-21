@@ -9,7 +9,7 @@ This agent follows the Agentic AI paradigm:
 """
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -153,7 +153,7 @@ Format: Just return the insight text, no markdown or JSON."""
         2. Topics practiced but never scheduled (fallback to 1 day)
         3. Topics with low mastery that haven't been practiced recently
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Query progress with subtopic, topic, and subject info
         query = select(Progress).options(
@@ -264,8 +264,8 @@ Format: Just return the insight text, no markdown or JSON."""
         # Update progress
         progress.mastery_level = new_mastery
         progress.review_interval_days = new_interval
-        progress.next_review_at = datetime.utcnow() + timedelta(days=new_interval)
-        progress.last_practiced_at = datetime.utcnow()
+        progress.next_review_at = datetime.now(timezone.utc) + timedelta(days=new_interval)
+        progress.last_practiced_at = datetime.now(timezone.utc)
         
         await db.commit()
 

@@ -22,6 +22,10 @@ COPY requirements.txt ./
 # Install Python dependencies
 RUN pip install -r requirements.txt
 
+# Download spaCy model for Presidio NER (Named Entity Recognition)
+# Using small model for faster startup; use en_core_web_lg for better accuracy
+RUN python -m spacy download en_core_web_lg
+
 # Copy application code
 COPY . .
 

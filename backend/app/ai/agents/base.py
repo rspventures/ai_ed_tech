@@ -11,6 +11,7 @@ from enum import Enum
 from app.ai.core.llm import LLMClient, LLMResponse, get_llm_client
 from app.ai.core.memory import AgentMemory
 from app.ai.core.telemetry import get_tracer, agent_span
+from app.ai.core.safety_pipeline import SafetyPipeline, get_safety_pipeline, SafetyAction
 
 
 class AgentState(Enum):
@@ -67,6 +68,8 @@ class BaseAgent(ABC):
         memory: Optional[AgentMemory] = None,
         temperature: float = 0.7,
         enable_telemetry: bool = True,
+        enable_safety: bool = True,
+        safety_pipeline: Optional[SafetyPipeline] = None,
     ):
         """
         Initialize the agent.
@@ -76,10 +79,14 @@ class BaseAgent(ABC):
             memory: Custom memory instance.
             temperature: LLM temperature for this agent.
             enable_telemetry: Whether to emit telemetry.
+            enable_safety: Whether to enable safety pipeline checks.
+            safety_pipeline: Custom safety pipeline instance.
         """
         self.llm = llm_client or LLMClient(temperature=temperature)
         self.memory = memory or AgentMemory(agent_name=self.name)
         self.enable_telemetry = enable_telemetry
+        self.enable_safety = enable_safety
+        self.safety_pipeline = safety_pipeline or (get_safety_pipeline() if enable_safety else None)
         
         self._state = AgentState.IDLE
         self._tools: Dict[str, callable] = {}
@@ -168,13 +175,42 @@ class BaseAgent(ABC):
                 session_id = session_id or await self._create_session()
                 span.set_attribute("session.id", session_id)
                 
+                # Phase 3A: Safety Pipeline - Input Validation
+                safe_input = user_input
+                grade = (metadata or {}).get("grade", 5)
+                
+                if self.enable_safety and self.safety_pipeline:
+                    span.add_event("safety_check_started")
+                    safety_result = await self.safety_pipeline.validate_input(
+                        text=user_input,
+                        grade=grade,
+                        student_id=(metadata or {}).get("student_id")
+                    )
+                    span.add_event("safety_check_completed", {
+                        "action": safety_result.action.value,
+                        "pii_detected": safety_result.pii_detected
+                    })
+                    
+                    if safety_result.is_blocked:
+                        self._state = AgentState.COMPLETED
+                        return AgentResult(
+                            success=False,
+                            output=None,
+                            state=AgentState.COMPLETED,
+                            error=safety_result.block_reason,
+                            metadata={"safety_blocked": True}
+                        )
+                    
+                    # Use sanitized input (PII redacted)
+                    safe_input = safety_result.processed_text
+                
                 # Get conversation history
                 history = await self.memory.get_history(session_id)
                 
-                # Build context
+                # Build context with safe input
                 context = AgentContext(
                     session_id=session_id,
-                    user_input=user_input,
+                    user_input=safe_input,
                     metadata=metadata or {},
                     history=history,
                 )
@@ -203,6 +239,25 @@ class BaseAgent(ABC):
                     result = await self.execute(context, plan)
                 
                 span.add_event("execution_completed", {"success": result.success})
+                
+                # Phase 3A: Safety Pipeline - Output Validation
+                # Only validate string outputs. Structured outputs (dicts/objects) should be validated by the specific agent if needed.
+                if self.enable_safety and self.safety_pipeline and result.success and result.output and isinstance(result.output, str):
+                    span.add_event("output_validation_started")
+                    output_result = await self.safety_pipeline.validate_output(
+                        output=result.output,
+                        original_question=user_input,
+                        grade=grade
+                    )
+                    span.add_event("output_validation_completed", {
+                        "is_safe": output_result.is_safe,
+                        "iterations": output_result.iterations
+                    })
+                    
+                    # Use validated output
+                    result.output = output_result.validated_output
+                    if not output_result.is_safe:
+                        result.metadata["output_sanitized"] = True
                 
                 # Store assistant response in memory
                 if result.success and result.output:
