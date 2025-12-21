@@ -4,9 +4,10 @@ Intelligent spaced repetition and review scheduling.
 Refactored from review_agent.py to use Agentic Architecture.
 """
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
+
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -239,7 +240,7 @@ Respond with ONLY the insight text, no JSON or markdown."""
         with tracer.start_as_current_span("get_due_reviews") as span:
             span.set_attribute("reviewer.student_id", str(student_id))
             
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             
             # Query progress with subtopic, topic, and subject info
             query = select(Progress).options(
@@ -265,10 +266,17 @@ Respond with ONLY the insight text, no JSON or markdown."""
                 review_reason = ""
                 
                 if progress.last_practiced_at:
-                    days_since = (now - progress.last_practiced_at).days
+                    # Ensure timezone-aware comparison
+                    last_practiced = progress.last_practiced_at
+                    if last_practiced.tzinfo is None:
+                        last_practiced = last_practiced.replace(tzinfo=timezone.utc)
+                    days_since = (now - last_practiced).days
                 
                 # Check SRS schedule
-                if progress.next_review_at and progress.next_review_at <= now:
+                next_review = progress.next_review_at
+                if next_review and next_review.tzinfo is None:
+                    next_review = next_review.replace(tzinfo=timezone.utc)
+                if next_review and next_review <= now:
                     needs_review = True
                     review_reason = "Scheduled for review today"
                 elif progress.last_practiced_at and not progress.next_review_at:
@@ -284,7 +292,10 @@ Respond with ONLY the insight text, no JSON or markdown."""
                 if needs_review:
                     days_overdue = 0
                     if progress.next_review_at:
-                        days_overdue = max(0, (now - progress.next_review_at).days)
+                        next_review = progress.next_review_at
+                        if next_review.tzinfo is None:
+                            next_review = next_review.replace(tzinfo=timezone.utc)
+                        days_overdue = max(0, (now - next_review).days)
                     
                     review_items.append(ReviewItem(
                         subtopic_id=progress.subtopic_id,
@@ -349,8 +360,8 @@ Respond with ONLY the insight text, no JSON or markdown."""
             # Update progress
             progress.mastery_level = new_mastery
             progress.review_interval_days = new_interval
-            progress.next_review_at = datetime.utcnow() + timedelta(days=new_interval)
-            progress.last_practiced_at = datetime.utcnow()
+            progress.next_review_at = datetime.now(timezone.utc) + timedelta(days=new_interval)
+            progress.last_practiced_at = datetime.now(timezone.utc)
             
             span.set_attribute("reviewer.new_mastery", new_mastery)
             span.set_attribute("reviewer.new_interval", new_interval)

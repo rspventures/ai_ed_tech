@@ -16,6 +16,7 @@ from app.api.v1.gamification import router as gamification_router
 from app.api.v1.documents import router as documents_router
 from app.api.v1.visuals import router as visuals_router
 from app.api.v1.feedback import router as feedback_router
+from app.api.v1.voice import router as voice_router
 
 api_router = APIRouter()
 
@@ -34,3 +35,5 @@ api_router.include_router(gamification_router)
 api_router.include_router(documents_router, prefix="/documents", tags=["Documents"])
 api_router.include_router(visuals_router)
 api_router.include_router(feedback_router)
+api_router.include_router(voice_router)
+

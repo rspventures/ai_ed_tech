@@ -26,7 +26,7 @@ from app.schemas.lesson import (
     CompleteLessonRequest
 )
 from app.services.learning_path import LearningPathService
-from app.ai.lesson_generator import lesson_generator
+from app.ai.agents.lesson import lesson_agent  # Compliant with Safety Pipeline via BaseAgent
 
 
 def sanitize_lesson_content(content: dict) -> dict:
@@ -207,7 +207,7 @@ async def get_or_generate_lesson(
     
     if not lesson:
         # Generate new lesson
-        content = await lesson_generator.generate(
+        content = await lesson_agent.generate(
             subject=subtopic.topic.subject.name,
             topic=subtopic.topic.name,
             subtopic=subtopic.name,
@@ -220,7 +220,7 @@ async def get_or_generate_lesson(
             grade_level=grade_level,
             title=content.get("title", f"Learning {subtopic.name}"),
             content=content,
-            generated_by=lesson_generator.get_model_name()
+            generated_by="LessonAgent"  # BaseAgent-compliant
         )
         db.add(lesson)
         await db.commit()
@@ -343,7 +343,7 @@ async def generate_new_lesson(
         )
     
     # Generate new lesson
-    content = await lesson_generator.generate(
+    content = await lesson_agent.generate(
         subject=subtopic.topic.subject.name,
         topic=subtopic.topic.name,
         subtopic=subtopic.name,
@@ -357,7 +357,7 @@ async def generate_new_lesson(
         grade_level=request.grade_level,
         title=content.get("title", f"Learning {subtopic.name}"),
         content=content,
-        generated_by=lesson_generator.get_model_name()
+        generated_by="LessonAgent"  # BaseAgent-compliant
     )
     db.add(lesson)
     await db.commit()

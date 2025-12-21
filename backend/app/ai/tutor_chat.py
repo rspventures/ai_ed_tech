@@ -3,6 +3,7 @@ AI Tutor Platform - Tutor Chat Agent
 LangChain-based conversational agent for real-time student support
 """
 import uuid
+import logging
 from typing import Optional, Dict, List
 from datetime import datetime
 
@@ -10,6 +11,10 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from app.core.config import settings
+from app.ai.core.safety_pipeline import get_safety_pipeline, SafetyAction
+from app.ai.core.observability import get_observer
+
+logger = logging.getLogger(__name__)
 
 
 class TutorChatAgent:
@@ -144,7 +149,9 @@ Format them as a JSON array at the very end of your response like this:
         message: str,
         context: str = "General tutoring session",
         grade_level: int = 1,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        image_attachment: Optional[str] = None,
+        user_id: Optional[str] = None
     ) -> dict:
         """
         Send a message to the tutor and get a response.
@@ -154,6 +161,8 @@ Format them as a JSON array at the very end of your response like this:
             context: Description of what the student is currently viewing
             grade_level: The student's grade (1, 2, or 3)
             session_id: Optional session ID for conversation continuity
+            image_attachment: Optional base64-encoded image or URL for Vision mode
+            user_id: Optional user ID for observability tracing
             
         Returns:
             Dictionary with response, session_id, and suggestions
@@ -162,28 +171,148 @@ Format them as a JSON array at the very end of your response like this:
         if session_id is None:
             session_id = str(uuid.uuid4())
         
-        # Add user message to session
-        self._add_to_session(session_id, "user", message)
+        # === OBSERVABILITY: Create trace ===
+        observer = get_observer()
+        trace = observer.create_trace(
+            name="tutor_chat",
+            user_id=user_id,
+            metadata={
+                "session_id": session_id,
+                "grade_level": grade_level,
+                "has_image": image_attachment is not None,
+                "context": context[:100] if context else None
+            }
+        )
         
-        # Build messages with history
-        messages = self._build_messages(session_id, context, grade_level)
-        messages.append(HumanMessage(content=message))
-        
-        # Get response from LLM
-        response = await self.llm.ainvoke(messages)
-        response_text = response.content
-        
-        # Parse out suggestions
-        clean_response, suggestions = self._parse_suggestions(response_text)
-        
-        # Add AI response to session (store clean version)
-        self._add_to_session(session_id, "assistant", clean_response)
-        
-        return {
-            "response": clean_response,
-            "session_id": session_id,
-            "suggestions": suggestions
-        }
+        try:
+            # === SAFETY: Validate input ===
+            safety_pipeline = get_safety_pipeline()
+            
+            # Create span for input validation
+            safety_span = observer.create_span(trace, "safety_input_validation")
+            safety_result = await safety_pipeline.validate_input(
+                text=message,
+                grade=grade_level,
+                student_id=user_id
+            )
+            if safety_span:
+                safety_span.end(output={
+                    "action": safety_result.action.value,
+                    "pii_detected": safety_result.pii_detected,
+                    "injection_threat": safety_result.injection_threat.value if hasattr(safety_result.injection_threat, 'value') else str(safety_result.injection_threat)
+                })
+            
+            # Check if input is blocked
+            if safety_result.action == SafetyAction.BLOCK:
+                logger.warning(f"Input blocked for user {user_id}: {safety_result.block_reason}")
+                if trace:
+                    trace.update(output={"blocked": True, "reason": safety_result.block_reason})
+                return {
+                    "response": "I can't help with that request. Let's focus on learning together! 📚 What would you like to study?",
+                    "session_id": session_id,
+                    "suggestions": ["Help me with math", "Explain a science concept"],
+                    "blocked": True
+                }
+            
+            # Use sanitized message
+            safe_message = safety_result.processed_text
+            
+            # Add user message to session
+            self._add_to_session(session_id, "user", safe_message)
+            
+            # Build system prompt with optional vision instructions
+            system_content = self.SYSTEM_PROMPT.format(
+                context=context,
+                grade_level=grade_level
+            )
+            
+            if image_attachment:
+                system_content += """
+
+VISION MODE:
+The student has shared an image. First, carefully analyze the image.
+- If it's a math problem: Solve it step-by-step, showing your work.
+- If it's a diagram or chart: Explain what you see.
+- If it's handwritten text: Transcribe and respond to it.
+- If it's unclear: Ask the student to clarify or take a clearer photo."""
+            
+            messages = [SystemMessage(content=system_content)]
+            
+            # Add history
+            session = self._get_session(session_id)
+            for msg in session[:-1]:  # Exclude the message we just added
+                if msg["role"] == "user":
+                    messages.append(HumanMessage(content=msg["content"]))
+                else:
+                    content = msg["content"]
+                    if "[SUGGESTIONS:" in content:
+                        content = content.split("[SUGGESTIONS:")[0].strip()
+                    messages.append(AIMessage(content=content))
+            
+            # Add current message - with image if attached
+            if image_attachment:
+                # GPT-4o Vision format: content as list of parts
+                message_content = [
+                    {"type": "text", "text": safe_message or "Please analyze this image."},
+                ]
+                
+                # Determine if base64 or URL
+                if image_attachment.startswith("data:") or image_attachment.startswith("http"):
+                    image_url = image_attachment
+                else:
+                    # Assume base64, add data URI prefix
+                    image_url = f"data:image/jpeg;base64,{image_attachment}"
+                
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": image_url, "detail": "high"}
+                })
+                
+                messages.append(HumanMessage(content=message_content))
+            else:
+                messages.append(HumanMessage(content=safe_message))
+            
+            # === LLM CALL with tracing ===
+            llm_span = observer.create_span(trace, "llm_invoke")
+            response = await self.llm.ainvoke(messages)
+            response_text = response.content
+            if llm_span:
+                llm_span.end(output={"response_length": len(response_text)})
+            
+            # Parse out suggestions
+            clean_response, suggestions = self._parse_suggestions(response_text)
+            
+            # === SAFETY: Validate output ===
+            output_span = observer.create_span(trace, "safety_output_validation")
+            output_result = await safety_pipeline.validate_output(
+                output=clean_response,
+                original_question=safe_message,
+                grade=grade_level
+            )
+            clean_response = output_result.validated_output
+            if output_span:
+                output_span.end(output={
+                    "is_safe": output_result.is_safe,
+                    "iterations": output_result.iterations
+                })
+            
+            # Add AI response to session (store clean version)
+            self._add_to_session(session_id, "assistant", clean_response)
+            
+            if trace:
+                trace.update(output={"success": True, "suggestions_count": len(suggestions)})
+            
+            return {
+                "response": clean_response,
+                "session_id": session_id,
+                "suggestions": suggestions
+            }
+            
+        except Exception as e:
+            logger.error(f"TutorChat error: {e}")
+            if trace:
+                trace.update(output={"error": str(e)})
+            raise
 
     def get_session_history(self, session_id: str) -> List[dict]:
         """Get the chat history for a session."""

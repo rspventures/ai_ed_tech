@@ -106,6 +106,7 @@ async def ask_tutor(
     
     The tutor is context-aware and knows what the student is currently viewing.
     Pass a session_id to continue a conversation.
+    Optionally include an image_attachment (base64 or URL) for Vision mode.
     """
     # Build context based on what student is viewing
     context = await build_context(request.context_type, request.context_id, db)
@@ -118,7 +119,8 @@ async def ask_tutor(
         message=request.message,
         context=context,
         grade_level=grade_level,
-        session_id=str(request.session_id) if request.session_id else None
+        session_id=str(request.session_id) if request.session_id else None,
+        image_attachment=request.image_attachment
     )
     
     return ChatResponse(

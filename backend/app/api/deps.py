@@ -119,3 +119,36 @@ async def get_current_student(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentActiveUser = Annotated[User, Depends(get_current_active_user)]
 DbSession = Annotated[AsyncSession, Depends(get_db)]
+
+
+async def get_current_user_ws(websocket, token: str) -> User | None:
+    """
+    Authenticate WebSocket connection using token query parameter.
+    
+    Used for Voice API where headers can't be easily set.
+    
+    Args:
+        websocket: The WebSocket connection
+        token: JWT token from query parameter
+        
+    Returns:
+        User if authenticated, None otherwise
+    """
+    from app.core.database import async_session_maker
+    
+    if not token:
+        return None
+    
+    user_id = verify_token(token, token_type="access")
+    if not user_id:
+        return None
+    
+    async with async_session_maker() as db:
+        auth_service = AuthService(db)
+        user = await auth_service.get_user_by_id(user_id)
+        
+        if not user or not user.is_active:
+            return None
+        
+        return user
+

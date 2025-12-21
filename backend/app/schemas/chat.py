@@ -41,6 +41,10 @@ class ChatRequest(BaseModel):
     context_type: ChatContextType = ChatContextType.GENERAL
     context_id: Optional[uuid.UUID] = None  # lesson_id or subtopic_id
     session_id: Optional[uuid.UUID] = None  # For conversation continuity
+    image_attachment: Optional[str] = Field(
+        None,
+        description="Base64-encoded image or URL for Vision mode"
+    )
     
 
 class ChatResponse(BaseModel):

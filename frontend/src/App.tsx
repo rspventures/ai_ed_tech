@@ -13,6 +13,7 @@ import ParentDashboardPage from '@/pages/ParentDashboardPage'
 import SettingsPage from '@/pages/SettingsPage'
 import DocumentsPage from '@/pages/DocumentsPage'
 import VisualsPage from '@/pages/VisualsPage'
+import { TutorChat } from '@/components/TutorChat'
 
 function App() {
     return (
@@ -139,8 +140,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
         return <Navigate to="/login" replace />
     }
 
-    return <>{children}</>
+    return (
+        <>
+            {children}
+            {/* Global AI Tutor Chat - available on all pages */}
+            <TutorChat contextType="general" />
+        </>
+    )
 }
 
 export default App
-

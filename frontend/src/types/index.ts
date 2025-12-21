@@ -262,6 +262,7 @@ export interface ChatRequest {
     context_type: ChatContextType
     context_id?: string
     session_id?: string
+    image_attachment?: string  // Base64 or URL for Vision mode
 }
 
 export interface ChatResponse {

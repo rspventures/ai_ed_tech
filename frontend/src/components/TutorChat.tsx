@@ -3,6 +3,7 @@
  * 
  * A floating chat button that expands into a full conversation interface
  * with Professor Sage, the friendly AI tutor.
+ * Now supports Vision mode - upload images for math problem solving!
  */
 import { useState, useRef, useEffect } from 'react'
 import {
@@ -11,9 +12,13 @@ import {
     Send,
     Loader2,
     Sparkles,
-    HelpCircle
+    HelpCircle,
+    Camera,
+    Mic
 } from 'lucide-react'
 import { chatService } from '@/services/chat'
+import { compressImage } from '@/utils/imageCompression'
+import { VoiceMode } from './VoiceMode'
 import type { ChatMessage, ChatContextType, ChatResponse } from '@/types'
 
 interface TutorChatProps {
@@ -36,8 +41,12 @@ export function TutorChat({
     const [isLoading, setIsLoading] = useState(false)
     const [sessionId, setSessionId] = useState<string | null>(null)
     const [suggestions, setSuggestions] = useState<string[]>([])
+    const [imageAttachment, setImageAttachment] = useState<string | null>(null)
+    const [isCompressing, setIsCompressing] = useState(false)
+    const [showVoiceMode, setShowVoiceMode] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLInputElement>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
 
     // Scroll to bottom when new messages arrive
     useEffect(() => {
@@ -51,27 +60,61 @@ export function TutorChat({
         }
     }, [isOpen])
 
+    // Handle image file selection
+    const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        if (!file) return
+
+        if (!file.type.startsWith('image/')) {
+            alert('Please select an image file')
+            return
+        }
+
+        setIsCompressing(true)
+        try {
+            const compressedImage = await compressImage(file)
+            setImageAttachment(compressedImage)
+        } catch (error) {
+            console.error('Image compression failed:', error)
+            alert('Failed to process image. Please try again.')
+        } finally {
+            setIsCompressing(false)
+        }
+
+        // Reset file input
+        if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+        }
+    }
+
+    const handleRemoveImage = () => {
+        setImageAttachment(null)
+    }
+
     const handleSendMessage = async (message?: string) => {
         const text = message || inputValue.trim()
-        if (!text || isLoading) return
+        if ((!text && !imageAttachment) || isLoading) return
 
         // Add user message immediately
         const userMessage: ChatMessage = {
             role: 'user',
-            content: text,
+            content: imageAttachment ? `${text} 📷` : text,
             timestamp: new Date().toISOString()
         }
         setMessages(prev => [...prev, userMessage])
         setInputValue('')
+        const currentImage = imageAttachment
+        setImageAttachment(null)
         setIsLoading(true)
         setSuggestions([])
 
         try {
             const response: ChatResponse = await chatService.askTutor({
-                message: text,
+                message: text || 'Please analyze this image.',
                 context_type: contextType,
                 context_id: contextId,
-                session_id: sessionId || undefined
+                session_id: sessionId || undefined,
+                image_attachment: currentImage || undefined
             })
 
             // Save session ID for conversation continuity
@@ -158,13 +201,23 @@ export function TutorChat({
                         <p className="text-white/80 text-xs">Your AI Learning Buddy</p>
                     </div>
                 </div>
-                <button
-                    onClick={() => setIsOpen(false)}
-                    className="text-white/80 hover:text-white transition-colors p-1"
-                    aria-label="Close chat"
-                >
-                    <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setShowVoiceMode(true)}
+                        className="text-white/80 hover:text-white transition-colors p-1"
+                        aria-label="Voice mode"
+                        title="🎙️ Talk to Professor Sage"
+                    >
+                        <Mic className="w-5 h-5" />
+                    </button>
+                    <button
+                        onClick={() => setIsOpen(false)}
+                        className="text-white/80 hover:text-white transition-colors p-1"
+                        aria-label="Close chat"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
             </div>
 
             {/* Messages Area */}
@@ -180,6 +233,15 @@ export function TutorChat({
                             I'm Professor Sage, your friendly tutor!<br />
                             Ask me anything about what you're learning.
                         </p>
+                        <button
+                            onClick={() => setShowVoiceMode(true)}
+                            className="mt-4 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 
+                                       text-white rounded-full text-sm font-medium
+                                       hover:shadow-lg transition-all flex items-center gap-2 mx-auto"
+                        >
+                            <Mic className="w-4 h-4" />
+                            Talk to me instead!
+                        </button>
                     </div>
                 )}
 
@@ -190,8 +252,8 @@ export function TutorChat({
                     >
                         <div
                             className={`max-w-[80%] rounded-2xl px-4 py-2 ${message.role === 'user'
-                                    ? 'bg-purple-600 text-white rounded-br-sm'
-                                    : 'bg-white text-gray-800 shadow-sm border border-gray-100 rounded-bl-sm'
+                                ? 'bg-purple-600 text-white rounded-br-sm'
+                                : 'bg-white text-gray-800 shadow-sm border border-gray-100 rounded-bl-sm'
                                 }`}
                         >
                             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
@@ -236,22 +298,70 @@ export function TutorChat({
 
             {/* Input Area */}
             <div className="p-3 border-t border-gray-200 bg-white">
+                {/* Image Preview */}
+                {imageAttachment && (
+                    <div className="mb-2 relative inline-block">
+                        <img
+                            src={imageAttachment}
+                            alt="Attached"
+                            className="h-16 w-16 object-cover rounded-lg border border-gray-200"
+                        />
+                        <button
+                            onClick={handleRemoveImage}
+                            className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white 
+                                       rounded-full flex items-center justify-center text-xs
+                                       hover:bg-red-600 transition-colors"
+                            aria-label="Remove image"
+                        >
+                            ×
+                        </button>
+                    </div>
+                )}
+
                 <div className="flex items-center gap-2">
+                    {/* Hidden file input */}
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handleImageSelect}
+                        className="hidden"
+                    />
+
+                    {/* Camera/Image button */}
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isLoading || isCompressing}
+                        className="w-10 h-10 bg-gray-100 rounded-full flex items-center 
+                                   justify-center text-gray-600 hover:bg-gray-200 
+                                   transition-colors disabled:opacity-50"
+                        aria-label="Upload image"
+                        title="📷 Snap a photo of a problem!"
+                    >
+                        {isCompressing ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                            <Camera className="w-5 h-5" />
+                        )}
+                    </button>
+
                     <input
                         ref={inputRef}
                         type="text"
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
                         onKeyPress={handleKeyPress}
-                        placeholder="Ask me anything..."
+                        placeholder={imageAttachment ? "Describe what you need help with..." : "Ask me anything..."}
                         disabled={isLoading}
-                        className="flex-1 px-4 py-2 bg-gray-100 rounded-full text-sm
+                        className="flex-1 px-4 py-2 bg-gray-100 rounded-full text-sm text-gray-900
+                                   placeholder:text-gray-500
                                    focus:outline-none focus:ring-2 focus:ring-purple-500 
                                    focus:bg-white transition-all disabled:opacity-50"
                     />
                     <button
                         onClick={() => handleSendMessage()}
-                        disabled={!inputValue.trim() || isLoading}
+                        disabled={(!inputValue.trim() && !imageAttachment) || isLoading}
                         className="w-10 h-10 bg-purple-600 rounded-full flex items-center 
                                    justify-center text-white hover:bg-purple-700 
                                    transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -265,6 +375,11 @@ export function TutorChat({
                     </button>
                 </div>
             </div>
+
+            {/* Voice Mode Modal */}
+            {showVoiceMode && (
+                <VoiceMode onClose={() => setShowVoiceMode(false)} />
+            )}
         </div>
     )
 }

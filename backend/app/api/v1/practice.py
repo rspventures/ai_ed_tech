@@ -470,7 +470,7 @@ async def submit_answer(
     # Try AI evaluation
     try:
         if settings.OPENAI_API_KEY or settings.ANTHROPIC_API_KEY:
-            from app.ai.answer_evaluator import answer_evaluator
+            from app.ai.agents.grader import answer_evaluator  # BaseAgent-compliant alias
             
             evaluation = await answer_evaluator.evaluate(
                 question=question_data["question"],

@@ -44,3 +44,7 @@ spacy>=3.7.0
 
 # Phase 3B - LLM Observability
 langfuse>=2.0.0
+
+# Phase 6 - Voice Mode (OpenAI Realtime API)
+websockets>=12.0
+

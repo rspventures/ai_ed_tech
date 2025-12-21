@@ -73,23 +73,36 @@ Format them as a JSON array at the very end of your response like this:
         Plan the conversation turn.
         
         Builds the message history and context for the LLM.
+        Supports vision: if image_attachment is in metadata, formats message for GPT-4o Vision.
         """
         metadata = context.metadata
         
         # Get conversation context
         lesson_context = metadata.get("context", "General tutoring session")
         grade_level = metadata.get("grade_level", 1)
+        image_attachment = metadata.get("image_attachment")  # base64 or URL
         
         # Build message history from memory
         messages = []
         
         # Add system prompt
-        messages.append(SystemMessage(
-            content=self.SYSTEM_PROMPT.format(
-                context=lesson_context,
-                grade_level=grade_level,
-            )
-        ))
+        system_content = self.SYSTEM_PROMPT.format(
+            context=lesson_context,
+            grade_level=grade_level,
+        )
+        
+        # If image is attached, add vision instructions
+        if image_attachment:
+            system_content += """
+
+VISION MODE:
+The student has shared an image. First, carefully analyze the image.
+- If it's a math problem: Solve it step-by-step, showing your work.
+- If it's a diagram or chart: Explain what you see.
+- If it's handwritten text: Transcribe and respond to it.
+- If it's unclear: Ask the student to clarify or take a clearer photo."""
+        
+        messages.append(SystemMessage(content=system_content))
         
         # Add conversation history
         for msg in context.history:
@@ -105,12 +118,33 @@ Format them as a JSON array at the very end of your response like this:
             else:
                 messages.append(AIMessage(content=content))
         
-        # Add current message
-        messages.append(HumanMessage(content=context.user_input))
+        # Add current message - with image if attached
+        if image_attachment:
+            # GPT-4o Vision format: content as list of parts
+            message_content = [
+                {"type": "text", "text": context.user_input or "Please analyze this image."},
+            ]
+            
+            # Determine if base64 or URL
+            if image_attachment.startswith("data:") or image_attachment.startswith("http"):
+                image_url = image_attachment
+            else:
+                # Assume base64, add data URI prefix
+                image_url = f"data:image/jpeg;base64,{image_attachment}"
+            
+            message_content.append({
+                "type": "image_url",
+                "image_url": {"url": image_url, "detail": "high"}
+            })
+            
+            messages.append(HumanMessage(content=message_content))
+        else:
+            messages.append(HumanMessage(content=context.user_input))
         
         return {
             "action": "generate_response",
             "messages": messages,
+            "has_image": bool(image_attachment),
             "params": {
                 "context": lesson_context,
                 "grade_level": grade_level,
