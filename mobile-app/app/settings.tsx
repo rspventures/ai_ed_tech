@@ -128,9 +128,14 @@ export default function SettingsScreen() {
                     <Text style={styles.backIcon}>←</Text>
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Settings</Text>
-                <TouchableOpacity onPress={handleSave} disabled={saving} style={styles.saveBtn}>
-                    {saving ? <ActivityIndicator color="#007AFF" size="small" /> : <Text style={styles.saveText}>Save</Text>}
-                </TouchableOpacity>
+                <View style={styles.headerRight}>
+                    <TouchableOpacity onPress={handleSave} disabled={saving} style={styles.saveBtn}>
+                        {saving ? <ActivityIndicator color="#007AFF" size="small" /> : <Text style={styles.saveText}>Save</Text>}
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleLogout} style={styles.logoutHeaderBtn}>
+                        <Text style={styles.logoutHeaderText}>Logout</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <ScrollView style={styles.content}>
@@ -222,11 +227,6 @@ export default function SettingsScreen() {
                     </View>
                 </View>
 
-                {/* Logout Button */}
-                <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-                    <Text style={styles.logoutText}>Log Out</Text>
-                </TouchableOpacity>
-
                 <View style={{ height: 40 }} />
             </ScrollView>
         </SafeAreaView>
@@ -269,6 +269,22 @@ const styles = StyleSheet.create({
         color: '#007AFF',
         fontWeight: '600',
         fontSize: 16,
+    },
+    headerRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    logoutHeaderBtn: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        backgroundColor: '#FEE2E2',
+        borderRadius: 8,
+    },
+    logoutHeaderText: {
+        color: '#EF4444',
+        fontWeight: '600',
+        fontSize: 14,
     },
     content: {
         flex: 1,
