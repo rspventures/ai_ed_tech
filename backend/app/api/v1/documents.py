@@ -166,6 +166,7 @@ async def upload_document(
         )
 
 
+@router.get("/list", response_model=DocumentListResponse)
 @router.get("/", response_model=DocumentListResponse)
 async def list_documents(
     student_id: Optional[str] = Query(None),

@@ -646,7 +646,7 @@ Return a JSON array of {total_questions} questions in this EXACT format:
                 normalized = self._normalize_question(q_data)
                 questions.append(normalized)
             
-            # Optional: Validate batch for within-batch duplicates
+            # Validate batch for duplicates AND answer correctness
             seen_hashes = set()
             unique_questions = []
             
@@ -654,6 +654,35 @@ Return a JSON array of {total_questions} questions in this EXACT format:
                 q_hash = hash(q.question.lower().strip())
                 if q_hash not in seen_hashes:
                     seen_hashes.add(q_hash)
+                    
+                    # ============================================================
+                    # CRITICAL: Verify answer correctness for math questions
+                    # LLMs often make place value and arithmetic errors!
+                    # ============================================================
+                    try:
+                        answer_result = self.validator.verify_answer(
+                            q.question, 
+                            q.answer, 
+                            subject
+                        )
+                        
+                        if not answer_result.is_correct and answer_result.expected_answer:
+                            # Fix the wrong answer with the correct one
+                            print(f"⚠️ Answer correction: '{q.answer}' → '{answer_result.expected_answer}' for: {q.question[:50]}...")
+                            q.answer = answer_result.expected_answer
+                            q.correct_answers = [answer_result.expected_answer]
+                            
+                            # Also fix in options (replace wrong answer with correct)
+                            if q.options:
+                                try:
+                                    wrong_idx = q.options.index(answer_result.provided_answer)
+                                    q.options[wrong_idx] = answer_result.expected_answer
+                                except ValueError:
+                                    # Wrong answer not in options, insert at first position
+                                    q.options[0] = answer_result.expected_answer
+                    except Exception as vp_err:
+                        print(f"Answer verification skipped: {vp_err}")
+                    
                     unique_questions.append(q)
             
             return unique_questions

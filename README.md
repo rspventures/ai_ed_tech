@@ -203,6 +203,37 @@ To use your own keys:
 
 4. **Access at** http://localhost:3000
 
+### Mobile App Setup (React Native / Expo)
+
+1. **Navigate to mobile-app**
+   ```bash
+   cd mobile-app
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Configure API URL** (in `src/api/client.ts`):
+   ```typescript
+   // For Android Emulator
+   baseURL: 'http://10.0.2.2:8000/api/v1'
+   
+   // For iOS Simulator / Physical Device
+   baseURL: 'http://YOUR_LOCAL_IP:8000/api/v1'
+   ```
+
+4. **Start Expo development server**
+   ```bash
+   npx expo start
+   ```
+
+5. **Run on device/emulator**
+   - Press `a` for Android
+   - Press `i` for iOS
+   - Scan QR code with Expo Go app on physical device
+
 ---
 
 ## 📁 Project Structure
@@ -241,6 +272,23 @@ AITutorPlatform/
 │   │   ├── components/      # Reusable components
 │   │   ├── services/        # API services
 │   │   └── stores/          # Zustand state management
+│   └── package.json
+├── mobile-app/              # React Native Mobile App
+│   ├── app/                 # Expo Router screens
+│   │   ├── home.tsx         # Dashboard
+│   │   ├── subject/         # Subject details
+│   │   ├── study/           # Topic learning
+│   │   ├── practice/        # Practice mode
+│   │   ├── test/            # Topic tests (timed)
+│   │   ├── exam/            # Subject exams
+│   │   ├── assessment/      # Learning assessments
+│   │   ├── lesson/          # Lesson viewer
+│   │   └── documents/       # Document upload & chat
+│   ├── src/
+│   │   ├── api/             # Axios client
+│   │   ├── services/        # API services
+│   │   ├── stores/          # Zustand state
+│   │   └── types/           # TypeScript types
 │   └── package.json
 ├── docker-compose.yml
 └── README.md
