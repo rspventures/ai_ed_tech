@@ -87,9 +87,14 @@ export default function HomeScreen() {
                     <Text style={styles.userName}>{user?.first_name} {user?.last_name}</Text>
                 </View>
 
-                <TouchableOpacity onPress={() => router.push('/settings')} style={styles.settingsBtn}>
-                    <Text style={styles.settingsIcon}>⚙️</Text>
-                </TouchableOpacity>
+                <View style={styles.headerActions}>
+                    <TouchableOpacity onPress={() => router.push('/settings')} style={styles.settingsBtn}>
+                        <Text style={styles.settingsIcon}>⚙️</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+                        <Text style={styles.logoutText}>Logout</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <ScrollView
@@ -220,6 +225,22 @@ const styles = StyleSheet.create({
     },
     settingsIcon: {
         fontSize: 24,
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    logoutBtn: {
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        backgroundColor: '#FEE2E2',
+        borderRadius: 8,
+    },
+    logoutText: {
+        color: '#EF4444',
+        fontWeight: '600',
+        fontSize: 14,
     },
     content: {
         flex: 1,
