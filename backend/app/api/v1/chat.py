@@ -3,7 +3,7 @@ AI Tutor Platform - Chat API Router
 Endpoints for the interactive AI tutor chat feature
 """
 import uuid
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -19,6 +19,7 @@ from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
     ChatHistoryResponse,
+    ChatSessionSummary,
     ChatMessage,
     ChatContextType,
     ChatRole
@@ -120,14 +121,50 @@ async def ask_tutor(
         context=context,
         grade_level=grade_level,
         session_id=str(request.session_id) if request.session_id else None,
-        image_attachment=request.image_attachment
+        image_attachment=request.image_attachment,
+        user_id=str(student.parent_id)
     )
+    
+    # Handle session_id - it might be None or a string
+    response_session_id = None
+    if result.get("session_id"):
+        try:
+            response_session_id = uuid.UUID(result["session_id"])
+        except (ValueError, TypeError):
+            response_session_id = None
     
     return ChatResponse(
         response=result["response"],
-        session_id=uuid.UUID(result["session_id"]),
-        suggestions=result["suggestions"]
+        session_id=response_session_id,
+        suggestions=result.get("suggestions", [])
     )
+
+
+
+@router.get("/sessions", response_model=List[ChatSessionSummary])
+async def list_chat_sessions(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 20
+):
+    """
+    List user's previous chat sessions.
+    """
+    from app.services.chat import ChatService
+    chat_service = ChatService(db)
+    
+    sessions = await chat_service.get_user_sessions(user.id, limit=limit)
+    
+    return [
+        ChatSessionSummary(
+            id=s.id,
+            title=s.title,
+            summary=s.summary,
+            created_at=s.created_at,
+            updated_at=s.updated_at
+        )
+        for s in sessions
+    ]
 
 
 @router.get("/history/{session_id}", response_model=ChatHistoryResponse)
@@ -140,7 +177,7 @@ async def get_chat_history(
     
     Useful for displaying previous messages when reopening the chat.
     """
-    history = tutor_chat.get_session_history(str(session_id))
+    history = await tutor_chat.get_session_history(str(session_id))
     
     messages = [
         ChatMessage(

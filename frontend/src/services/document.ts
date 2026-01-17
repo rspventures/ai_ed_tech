@@ -47,6 +47,7 @@ export interface ChatResponse {
     grounded: boolean
     confidence: number
     sources: SearchResult[]
+    session_id?: string  // For chat history persistence
 }
 
 export interface QuizQuestion {
@@ -60,6 +61,25 @@ export interface QuizResponse {
     questions: QuizQuestion[]
     document_id: string
     total_questions: number
+}
+
+export interface ProcessingStep {
+    name: string
+    status: 'pending' | 'running' | 'completed' | 'failed'
+    message: string | null
+}
+
+export interface ProcessingStatus {
+    document_id: string
+    status: string
+    progress_percent: number
+    current_step: string
+    steps: ProcessingStep[]
+    error_message: string | null
+    error_suggestion: string | null
+    chunk_count: number
+    entity_count: number
+    estimated_time_remaining: number | null
 }
 
 class DocumentService {
@@ -112,6 +132,38 @@ class DocumentService {
     }
 
     /**
+     * Get document processing status with detailed steps
+     * Use this for polling during upload/processing
+     */
+    async getDocumentStatus(documentId: string): Promise<ProcessingStatus> {
+        const response = await api.get(`/documents/${documentId}/status`)
+        return response.data
+    }
+
+    /**
+     * Poll document status until complete or failed
+     * Returns final status or throws on timeout
+     */
+    async pollUntilComplete(
+        documentId: string,
+        onProgress?: (status: ProcessingStatus) => void,
+        maxAttempts = 60,
+        intervalMs = 2000
+    ): Promise<ProcessingStatus> {
+        for (let i = 0; i < maxAttempts; i++) {
+            const status = await this.getDocumentStatus(documentId)
+            onProgress?.(status)
+
+            if (status.status === 'completed' || status.status === 'failed' || status.status === 'rejected') {
+                return status
+            }
+
+            await new Promise(resolve => setTimeout(resolve, intervalMs))
+        }
+        throw new Error('Document processing timeout')
+    }
+
+    /**
      * Delete a document
      */
     async deleteDocument(documentId: string): Promise<void> {
@@ -124,12 +176,25 @@ class DocumentService {
     async chatWithDocument(
         documentId: string,
         query: string,
-        grade = 5
+        grade = 5,
+        sessionId?: string
     ): Promise<ChatResponse> {
         const response = await api.post(`/documents/${documentId}/chat`, {
             query,
             grade,
+            session_id: sessionId,
         })
+        return response.data
+    }
+
+    /**
+     * Get chat history for a document session
+     */
+    async getChatHistory(
+        documentId: string,
+        sessionId: string
+    ): Promise<{ session_id: string; messages: Array<{ role: string; content: string; created_at: string }> }> {
+        const response = await api.get(`/documents/${documentId}/chat/history/${sessionId}`)
         return response.data
     }
 

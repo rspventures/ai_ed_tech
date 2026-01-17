@@ -63,3 +63,12 @@ class ChatHistoryResponse(BaseModel):
     messages: List[ChatMessage]
     context_type: ChatContextType
     context_id: Optional[uuid.UUID] = None
+
+class ChatSessionSummary(BaseModel):
+    """Summary of a chat session for listing."""
+    id: uuid.UUID
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+

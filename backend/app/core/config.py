@@ -81,6 +81,18 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: int = 30
     LLM_MAX_RETRIES: int = 3
     
+    # Hybrid Search (Phase 7)
+    COHERE_API_KEY: str = ""  # For reranking - optional
+    
+    # Neo4j Graph Database (Phase 7 - Graph RAG)
+    NEO4J_URI: str = "bolt://neo4j:7687"
+    NEO4J_USER: str = "neo4j"
+    NEO4J_PASSWORD: str = "password"
+    
+    # Arize Phoenix (RAG Metrics)
+    PHOENIX_ENABLED: bool = True
+    PHOENIX_ENDPOINT: str = "http://phoenix:6006"
+    
     # CORS - stored as comma-separated string
     CORS_ORIGINS_STR: str = "http://localhost:3000,http://localhost:5173"
     

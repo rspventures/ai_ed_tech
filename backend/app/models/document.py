@@ -111,6 +111,9 @@ class UserDocument(Base):
     # Privacy
     is_private: Mapped[bool] = mapped_column(Boolean, default=True)
     
+    # Document summary for hierarchical retrieval
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
@@ -168,6 +171,9 @@ class DocumentChunk(Base):
     
     # Metadata (page number, section, etc.)
     chunk_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, default={}, nullable=True)
+    
+    # Contextual Retrieval - LLM-generated context explaining chunk relevance
+    context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -242,3 +248,36 @@ class GeneratedImage(Base):
     
     def __repr__(self) -> str:
         return f"<GeneratedImage '{self.concept}' grade {self.grade_level}>"
+
+
+class DocumentQuizHistory(Base):
+    """
+    Tracks previously generated quiz questions per document.
+    
+    Used to prevent repetition when generating new quizzes.
+    Only stores the last N questions per document for deduplication.
+    """
+    
+    __tablename__ = "document_quiz_history"
+    
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), 
+        primary_key=True, 
+        default=uuid.uuid4
+    )
+    
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), 
+        ForeignKey("user_documents.id", ondelete="CASCADE"),
+        index=True
+    )
+    
+    question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now()
+    )
+    
+    def __repr__(self) -> str:
+        return f"<DocumentQuizHistory {self.document_id[:8]}... '{self.question_text[:30]}...'>"

@@ -278,6 +278,14 @@ export interface ChatHistory {
     context_id?: string
 }
 
+export interface ChatSessionSummary {
+    id: string
+    title: string | null
+    summary: string | null
+    created_at: string
+    updated_at: string
+}
+
 // ============================================================================
 // Parent Dashboard Types
 // ============================================================================

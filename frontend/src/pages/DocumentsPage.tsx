@@ -37,6 +37,8 @@ export default function DocumentsPage() {
     const [chatInput, setChatInput] = useState('')
     const [chatLoading, setChatLoading] = useState(false)
     const [uploadProgress, setUploadProgress] = useState(0)
+    const [sessionId, setSessionId] = useState<string | null>(null)
+    const [loadingHistory, setLoadingHistory] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const chatEndRef = useRef<HTMLDivElement>(null)
 
@@ -46,6 +48,7 @@ export default function DocumentsPage() {
     const [showQuizModal, setShowQuizModal] = useState(false)
     const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string>>({})
     const [showResults, setShowResults] = useState(false)
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
 
     useEffect(() => {
         loadDocuments()
@@ -55,6 +58,13 @@ export default function DocumentsPage() {
         // Scroll to bottom when new messages arrive
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [chatMessages])
+
+    // Save session ID to localStorage when it changes
+    useEffect(() => {
+        if (sessionId && selectedDoc) {
+            localStorage.setItem(`doc_chat_session_${selectedDoc.id}`, sessionId)
+        }
+    }, [sessionId, selectedDoc])
 
     const loadDocuments = async () => {
         try {
@@ -122,10 +132,36 @@ export default function DocumentsPage() {
         }
     }
 
-    const handleSelectDocument = (doc: Document) => {
+    const handleSelectDocument = async (doc: Document) => {
         setSelectedDoc(doc)
         setChatMessages([])
         setChatInput('')
+        setLoadingHistory(true)
+
+        // Load stored session ID for this document
+        const storedSessionId = localStorage.getItem(`doc_chat_session_${doc.id}`)
+        setSessionId(storedSessionId)
+
+        // If we have a stored session, try to load history
+        if (storedSessionId) {
+            try {
+                const history = await documentService.getChatHistory(doc.id, storedSessionId)
+                if (history.messages && history.messages.length > 0) {
+                    setChatMessages(
+                        history.messages.map(msg => ({
+                            role: msg.role as 'user' | 'assistant',
+                            content: msg.content,
+                        }))
+                    )
+                }
+            } catch (error) {
+                console.error('Failed to load chat history:', error)
+                // Clear invalid session
+                localStorage.removeItem(`doc_chat_session_${doc.id}`)
+                setSessionId(null)
+            }
+        }
+        setLoadingHistory(false)
     }
 
     const handleSendMessage = async () => {
@@ -140,8 +176,14 @@ export default function DocumentsPage() {
             const response = await documentService.chatWithDocument(
                 selectedDoc.id,
                 userMessage,
-                5 // default grade
+                5, // default grade
+                sessionId || undefined
             )
+
+            // Save session ID for continuity
+            if (response.session_id) {
+                setSessionId(response.session_id)
+            }
 
             setChatMessages(prev => [
                 ...prev,
@@ -172,6 +214,7 @@ export default function DocumentsPage() {
         setQuizQuestions([])
         setSelectedAnswers({})
         setShowResults(false)
+        setCurrentQuestionIndex(0)
 
         try {
             const response = await documentService.generateQuiz(
@@ -611,120 +654,202 @@ export default function DocumentsPage() {
                                 <div className="flex flex-col items-center justify-center py-12">
                                     <Loader2 className="w-10 h-10 text-purple-500 animate-spin mb-4" />
                                     <p className="text-gray-400">Generating questions from your document...</p>
-                                    <p className="text-sm text-gray-500 mt-2">This may take a few seconds</p>
+                                    <p className="text-sm text-gray-500 mt-2">Reading entire document for coverage...</p>
+                                </div>
+                            ) : !showResults ? (
+                                // Active Quiz Mode - Single Question
+                                <div className="max-w-2xl mx-auto">
+                                    {/* Progress Bar */}
+                                    <div className="mb-6">
+                                        <div className="flex justify-between text-sm text-gray-400 mb-2">
+                                            <span>Question {currentQuestionIndex + 1} of {quizQuestions.length}</span>
+                                            <span>{Math.round(((currentQuestionIndex + 1) / quizQuestions.length) * 100)}%</span>
+                                        </div>
+                                        <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-purple-500 transition-all duration-300"
+                                                style={{ width: `${((currentQuestionIndex + 1) / quizQuestions.length) * 100}%` }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Current Question */}
+                                    <div className="bg-white/5 rounded-xl p-6 border border-white/5 animate-in fade-in slide-in-from-right-4 duration-300">
+                                        <p className="text-white font-medium mb-6 text-lg leading-relaxed">
+                                            {quizQuestions[currentQuestionIndex].question}
+                                        </p>
+
+                                        <div className="grid gap-3">
+                                            {quizQuestions[currentQuestionIndex].options.map((option, optIdx) => {
+                                                const isSelected = selectedAnswers[currentQuestionIndex] === option
+                                                const isCorrect = option === quizQuestions[currentQuestionIndex].correct_answer
+                                                const hasAnswered = !!selectedAnswers[currentQuestionIndex]
+                                                const optionLetter = String.fromCharCode(65 + optIdx)
+
+                                                let optionClass = 'bg-white/5 border-white/10 hover:bg-white/10 text-gray-300'
+                                                let letterClass = 'bg-white/10 text-gray-400'
+
+                                                if (hasAnswered) {
+                                                    if (isCorrect) {
+                                                        optionClass = 'bg-green-500/20 border-green-500/50 text-white'
+                                                        letterClass = 'bg-green-500/30 text-green-300'
+                                                    } else if (isSelected && !isCorrect) {
+                                                        optionClass = 'bg-red-500/20 border-red-500/50 text-white'
+                                                        letterClass = 'bg-red-500/30 text-red-300'
+                                                    } else if (isSelected) {
+                                                        // Fallback for selected
+                                                        optionClass = 'bg-purple-500/20 border-purple-500/50 text-white'
+                                                    }
+                                                } else if (isSelected) {
+                                                    optionClass = 'bg-purple-500/20 border-purple-500/50 text-white'
+                                                    letterClass = 'bg-purple-500/30 text-purple-300'
+                                                }
+
+                                                return (
+                                                    <button
+                                                        key={optIdx}
+                                                        onClick={() => handleAnswerSelect(currentQuestionIndex, option)}
+                                                        className={`flex items-center gap-4 w-full p-4 text-left rounded-xl border transition-all ${optionClass} ${hasAnswered ? 'cursor-default' : 'cursor-pointer'}`}
+                                                        disabled={hasAnswered}
+                                                    >
+                                                        <span className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold flex-shrink-0 ${letterClass}`}>
+                                                            {optionLetter}
+                                                        </span>
+                                                        <span className="text-base leading-relaxed">{option}</span>
+
+                                                        {hasAnswered && isCorrect && (
+                                                            <Check className="w-5 h-5 text-green-400 ml-auto" />
+                                                        )}
+                                                        {hasAnswered && isSelected && !isCorrect && (
+                                                            <X className="w-5 h-5 text-red-400 ml-auto" />
+                                                        )}
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+
+                                        {/* Immediate Feedback */}
+                                        {selectedAnswers[currentQuestionIndex] && (
+                                            <div className="mt-6 pt-6 border-t border-white/10 animate-in fade-in zoom-in-95">
+                                                <div className={`p-4 rounded-xl border ${selectedAnswers[currentQuestionIndex] === quizQuestions[currentQuestionIndex].correct_answer
+                                                    ? 'bg-green-500/10 border-green-500/20'
+                                                    : 'bg-red-500/10 border-red-500/20'
+                                                    }`}>
+                                                    <p className={`font-semibold mb-2 ${selectedAnswers[currentQuestionIndex] === quizQuestions[currentQuestionIndex].correct_answer
+                                                        ? 'text-green-400'
+                                                        : 'text-red-400'
+                                                        }`}>
+                                                        {selectedAnswers[currentQuestionIndex] === quizQuestions[currentQuestionIndex].correct_answer
+                                                            ? 'Correct! 🎉'
+                                                            : 'Not quite right 😅'}
+                                                    </p>
+                                                    <p className="text-gray-300 text-sm leading-relaxed">
+                                                        <span className="text-purple-400 font-semibold">Explanation: </span>
+                                                        {quizQuestions[currentQuestionIndex].explanation}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             ) : (
-                                <>
-                                    {/* Score Banner */}
-                                    {showResults && (
-                                        <div className={`p-4 rounded-xl mb-5 text-center ${calculateScore() >= quizQuestions.length * 0.8
-                                            ? 'bg-green-500/20 border border-green-500/40'
-                                            : calculateScore() >= quizQuestions.length * 0.5
-                                                ? 'bg-yellow-500/20 border border-yellow-500/40'
-                                                : 'bg-red-500/20 border border-red-500/40'
-                                            }`}>
-                                            <p className="text-2xl font-bold text-white mb-1">
-                                                {calculateScore()}/{quizQuestions.length} Correct
-                                            </p>
-                                            <p className="text-sm text-gray-300">
-                                                {Math.round((calculateScore() / quizQuestions.length) * 100)}% Score
-                                            </p>
+                                /* Result Summary View */
+                                <div className="max-w-2xl mx-auto text-center py-8">
+                                    <div className="w-24 h-24 bg-gradient-to-br from-purple-500 to-pink-500 rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-xl shadow-purple-500/20">
+                                        <Sparkles className="w-12 h-12 text-white" />
+                                    </div>
+
+                                    <h2 className="text-3xl font-bold text-white mb-2">Quiz Complete!</h2>
+                                    <p className="text-gray-400 mb-8">Here's how you performed on this document</p>
+
+                                    <div className="grid grid-cols-3 gap-4 mb-8">
+                                        <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                                            <p className="text-gray-400 text-sm mb-1">Score</p>
+                                            <p className="text-2xl font-bold text-white">{Math.round((calculateScore() / quizQuestions.length) * 100)}%</p>
                                         </div>
-                                    )}
+                                        <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                                            <p className="text-gray-400 text-sm mb-1">Correct</p>
+                                            <p className="text-2xl font-bold text-green-400">{calculateScore()}</p>
+                                        </div>
+                                        <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                                            <p className="text-gray-400 text-sm mb-1">Total</p>
+                                            <p className="text-2xl font-bold text-white">{quizQuestions.length}</p>
+                                        </div>
+                                    </div>
 
-                                    {/* Questions */}
-                                    <div className="space-y-5">
+                                    {/* Detailed Review List */}
+                                    <div className="text-left space-y-4 mb-8 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                                        <h3 className="text-white font-semibold sticky top-0 bg-[#111827] py-2">Question Review</h3>
                                         {quizQuestions.map((q, idx) => (
-                                            <div key={idx} className="bg-white/5 rounded-xl p-5 border border-white/5">
-                                                <p className="text-white font-medium mb-4 text-base leading-relaxed">
-                                                    <span className="text-purple-400 font-bold mr-2">Q{idx + 1}.</span>
-                                                    {q.question}
-                                                </p>
-                                                <div className="grid gap-2">
-                                                    {q.options.map((option, optIdx) => {
-                                                        const isSelected = selectedAnswers[idx] === option
-                                                        const isCorrect = option === q.correct_answer
-                                                        const optionLetter = String.fromCharCode(65 + optIdx) // A, B, C, D
-
-                                                        let optionClass = 'bg-white/5 border-white/10 hover:bg-white/10 text-gray-300'
-                                                        let letterClass = 'bg-white/10 text-gray-400'
-
-                                                        if (showResults) {
-                                                            if (isCorrect) {
-                                                                optionClass = 'bg-green-500/20 border-green-500/50 text-white'
-                                                                letterClass = 'bg-green-500/30 text-green-300'
-                                                            } else if (isSelected && !isCorrect) {
-                                                                optionClass = 'bg-red-500/20 border-red-500/50 text-white'
-                                                                letterClass = 'bg-red-500/30 text-red-300'
-                                                            }
-                                                        } else if (isSelected) {
-                                                            optionClass = 'bg-purple-500/20 border-purple-500/50 text-white'
-                                                            letterClass = 'bg-purple-500/30 text-purple-300'
-                                                        }
-
-                                                        return (
-                                                            <button
-                                                                key={optIdx}
-                                                                onClick={() => handleAnswerSelect(idx, option)}
-                                                                className={`flex items-center gap-3 w-full p-3 text-left rounded-lg border transition-all ${optionClass}`}
-                                                                disabled={showResults}
-                                                            >
-                                                                <span className={`w-7 h-7 flex items-center justify-center rounded-md text-sm font-medium flex-shrink-0 ${letterClass}`}>
-                                                                    {optionLetter}
-                                                                </span>
-                                                                <span className="text-sm leading-relaxed">{option}</span>
-                                                            </button>
-                                                        )
-                                                    })}
+                                            <div key={idx} className="bg-white/5 p-4 rounded-xl border border-white/5 flex gap-4">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${selectedAnswers[idx] === q.correct_answer
+                                                    ? 'bg-green-500/20 text-green-400'
+                                                    : 'bg-red-500/20 text-red-400'
+                                                    }`}>
+                                                    {selectedAnswers[idx] === q.correct_answer ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
                                                 </div>
-                                                {showResults && q.explanation && (
-                                                    <div className="mt-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
-                                                        <p className="text-sm text-gray-300 leading-relaxed">
-                                                            <span className="text-purple-400 font-semibold">💡 Explanation: </span>
-                                                            {q.explanation}
-                                                        </p>
-                                                    </div>
-                                                )}
+                                                <div>
+                                                    <p className="text-gray-200 text-sm font-medium mb-1 line-clamp-2">{q.question}</p>
+                                                    <p className="text-xs text-gray-500">Correct answer: {q.correct_answer}</p>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
-                                </>
+                                </div>
                             )}
                         </div>
 
                         {/* Modal Footer */}
                         {quizQuestions.length > 0 && (
-                            <div className="p-5 border-t border-white/10 flex-shrink-0">
-                                <div className="flex gap-3">
+                            <div className="p-5 border-t border-white/10 flex-shrink-0 bg-gray-900/50 backdrop-blur-sm">
+                                <div className="flex gap-3 max-w-2xl mx-auto w-full">
                                     {!showResults ? (
-                                        <button
-                                            onClick={handleSubmitQuiz}
-                                            disabled={Object.keys(selectedAnswers).length !== quizQuestions.length}
-                                            className="flex-1 py-3 px-6 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-xl
-                                                     hover:from-purple-600 hover:to-pink-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                                        >
-                                            Submit Answers ({Object.keys(selectedAnswers).length}/{quizQuestions.length})
-                                        </button>
+                                        <>
+                                            <button
+                                                onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
+                                                disabled={currentQuestionIndex === 0}
+                                                className="px-6 py-3 rounded-xl border border-white/10 text-white font-medium hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                                            >
+                                                Previous
+                                            </button>
+                                            <div className="flex-1"></div>
+                                            {currentQuestionIndex < quizQuestions.length - 1 ? (
+                                                <button
+                                                    onClick={() => setCurrentQuestionIndex(prev => Math.min(quizQuestions.length - 1, prev + 1))}
+                                                    disabled={!selectedAnswers[currentQuestionIndex]}
+                                                    className="px-6 py-3 bg-white text-gray-900 font-bold rounded-xl hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                                                >
+                                                    Next Question
+                                                    <ChevronLeft className="w-4 h-4 rotate-180" />
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => setShowResults(true)}
+                                                    disabled={!selectedAnswers[currentQuestionIndex]}
+                                                    className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                                >
+                                                    Finish Quiz
+                                                </button>
+                                            )}
+                                        </>
                                     ) : (
                                         <>
                                             <button
                                                 onClick={() => {
-                                                    setSelectedAnswers({})
+                                                    setShowQuizModal(false)
                                                     setShowResults(false)
+                                                    setSelectedAnswers({})
+                                                    setCurrentQuestionIndex(0)
                                                 }}
-                                                className="flex-1 py-3 px-6 bg-white/10 text-white font-medium rounded-xl hover:bg-white/20 transition-colors"
+                                                className="flex-1 py-3 px-6 border border-white/10 text-white font-medium rounded-xl hover:bg-white/5 transition-all"
                                             >
-                                                Retry Quiz
+                                                Close
                                             </button>
                                             <button
-                                                onClick={() => {
-                                                    setShowQuizModal(false)
-                                                    handleGenerateQuiz()
-                                                }}
-                                                className="flex-1 py-3 px-6 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-xl
-                                                         hover:from-purple-600 hover:to-pink-600 transition-all"
+                                                onClick={handleGenerateQuiz}
+                                                className="flex-1 py-3 px-6 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-purple-500/25 transition-all"
                                             >
-                                                New Quiz
+                                                Try Another Quiz
                                             </button>
                                         </>
                                     )}

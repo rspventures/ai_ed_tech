@@ -151,26 +151,17 @@ Format them as a JSON array at the very end of your response like this:
         grade_level: int = 1,
         session_id: Optional[str] = None,
         image_attachment: Optional[str] = None,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        document_id: Optional[str] = None
     ) -> dict:
         """
         Send a message to the tutor and get a response.
-        
-        Args:
-            message: The student's question
-            context: Description of what the student is currently viewing
-            grade_level: The student's grade (1, 2, or 3)
-            session_id: Optional session ID for conversation continuity
-            image_attachment: Optional base64-encoded image or URL for Vision mode
-            user_id: Optional user ID for observability tracing
-            
-        Returns:
-            Dictionary with response, session_id, and suggestions
+        Uses RAGAgent for answer generation and ChatService for persistence.
         """
-        # Create or use existing session
-        if session_id is None:
-            session_id = str(uuid.uuid4())
-        
+        from app.core.database import async_session_maker
+        from app.services.chat import ChatService
+        from app.models.chat import MessageRole
+
         # === OBSERVABILITY: Create trace ===
         observer = get_observer()
         trace = observer.create_trace(
@@ -199,7 +190,7 @@ Format them as a JSON array at the very end of your response like this:
                 safety_span.end(output={
                     "action": safety_result.action.value,
                     "pii_detected": safety_result.pii_detected,
-                    "injection_threat": safety_result.injection_threat.value if hasattr(safety_result.injection_threat, 'value') else str(safety_result.injection_threat)
+                    "injection_threat": str(safety_result.injection_threat)
                 })
             
             # Check if input is blocked
@@ -217,70 +208,66 @@ Format them as a JSON array at the very end of your response like this:
             # Use sanitized message
             safe_message = safety_result.processed_text
             
-            # Add user message to session
-            self._add_to_session(session_id, "user", safe_message)
+            # === PERSISTENCE: Save User Message ===
+            session_uuid = None
+            async with async_session_maker() as db:
+                chat_service = ChatService(db)
+                
+                # Ensure session exists (if ID provided) or create new
+                if session_id:
+                     try:
+                         session_uuid = uuid.UUID(session_id)
+                     except ValueError:
+                         session_uuid = None
+                         session_id = None
+                
+                if not session_uuid and user_id:
+                    # Create new session if none provided
+                    try:
+                        new_session = await chat_service.create_session(uuid.UUID(user_id), title=safe_message[:50])
+                        session_uuid = new_session.id
+                        session_id = str(session_uuid)
+                    except Exception as e:
+                        logger.error(f"Failed to create session: {e}")
+
+                if session_uuid:
+                    await chat_service.add_message(session_uuid, MessageRole.USER, safe_message)
+
             
-            # Build system prompt with optional vision instructions
-            system_content = self.SYSTEM_PROMPT.format(
-                context=context,
-                grade_level=grade_level
+            # === GENERATION: Direct LLM Call (NOT RAG) ===
+            # Tutor chat uses direct LLM conversation, NOT document retrieval
+            # Add to in-memory session for context building
+            if session_id:
+                self._add_to_session(session_id, "user", safe_message)
+            
+            # Build messages with context and history
+            messages = self._build_messages(
+                session_id or str(uuid.uuid4()),
+                context,
+                grade_level
             )
             
-            if image_attachment:
-                system_content += """
-
-VISION MODE:
-The student has shared an image. First, carefully analyze the image.
-- If it's a math problem: Solve it step-by-step, showing your work.
-- If it's a diagram or chart: Explain what you see.
-- If it's handwritten text: Transcribe and respond to it.
-- If it's unclear: Ask the student to clarify or take a clearer photo."""
+            # Add current user message
+            messages.append(HumanMessage(content=safe_message))
             
-            messages = [SystemMessage(content=system_content)]
+            # Call LLM directly
+            llm_span = observer.create_span(trace, "llm_generation")
+            try:
+                llm_response = await self.llm.ainvoke(messages)
+                response_text = llm_response.content
+            except Exception as e:
+                logger.error(f"LLM call failed: {e}")
+                response_text = "I'm having trouble thinking right now. Could you try asking again? 🤔"
             
-            # Add history
-            session = self._get_session(session_id)
-            for msg in session[:-1]:  # Exclude the message we just added
-                if msg["role"] == "user":
-                    messages.append(HumanMessage(content=msg["content"]))
-                else:
-                    content = msg["content"]
-                    if "[SUGGESTIONS:" in content:
-                        content = content.split("[SUGGESTIONS:")[0].strip()
-                    messages.append(AIMessage(content=content))
-            
-            # Add current message - with image if attached
-            if image_attachment:
-                # GPT-4o Vision format: content as list of parts
-                message_content = [
-                    {"type": "text", "text": safe_message or "Please analyze this image."},
-                ]
-                
-                # Determine if base64 or URL
-                if image_attachment.startswith("data:") or image_attachment.startswith("http"):
-                    image_url = image_attachment
-                else:
-                    # Assume base64, add data URI prefix
-                    image_url = f"data:image/jpeg;base64,{image_attachment}"
-                
-                message_content.append({
-                    "type": "image_url",
-                    "image_url": {"url": image_url, "detail": "high"}
-                })
-                
-                messages.append(HumanMessage(content=message_content))
-            else:
-                messages.append(HumanMessage(content=safe_message))
-            
-            # === LLM CALL with tracing ===
-            llm_span = observer.create_span(trace, "llm_invoke")
-            response = await self.llm.ainvoke(messages)
-            response_text = response.content
             if llm_span:
                 llm_span.end(output={"response_length": len(response_text)})
             
             # Parse out suggestions
             clean_response, suggestions = self._parse_suggestions(response_text)
+            
+            # Add assistant response to in-memory session
+            if session_id:
+                self._add_to_session(session_id, "assistant", clean_response)
             
             # === SAFETY: Validate output ===
             output_span = observer.create_span(trace, "safety_output_validation")
@@ -295,17 +282,21 @@ The student has shared an image. First, carefully analyze the image.
                     "is_safe": output_result.is_safe,
                     "iterations": output_result.iterations
                 })
-            
-            # Add AI response to session (store clean version)
-            self._add_to_session(session_id, "assistant", clean_response)
-            
+
+            # === PERSISTENCE: Save AI Message ===
+            if session_uuid:
+                async with async_session_maker() as db:
+                    chat_service = ChatService(db)
+                    await chat_service.add_message(session_uuid, MessageRole.ASSISTANT, clean_response)
+
             if trace:
                 trace.update(output={"success": True, "suggestions_count": len(suggestions)})
             
             return {
                 "response": clean_response,
                 "session_id": session_id,
-                "suggestions": suggestions
+                "suggestions": suggestions,
+                "grounded": False  # Not from documents
             }
             
         except Exception as e:
@@ -314,14 +305,39 @@ The student has shared an image. First, carefully analyze the image.
                 trace.update(output={"error": str(e)})
             raise
 
-    def get_session_history(self, session_id: str) -> List[dict]:
-        """Get the chat history for a session."""
-        return self._get_session(session_id)
+    async def get_session_history(self, session_id: str) -> List[dict]:
+         """
+         Get the chat history for a session from DB.
+         """
+         from app.core.database import async_session_maker
+         from app.services.chat import ChatService
+         import uuid
+         
+         async with async_session_maker() as db:
+             chat_service = ChatService(db)
+             msgs = await chat_service.get_history(uuid.UUID(session_id), limit=50)
+             return [
+                 {"role": m.role, "content": m.content, "timestamp": m.created_at}
+                 for m in msgs
+             ]
 
-    def clear_session(self, session_id: str):
+    async def clear_session(self, session_id: str):
         """Clear a chat session."""
-        if session_id in self._sessions:
-            del self._sessions[session_id]
+        from app.core.database import async_session_maker
+        from app.models.chat import ChatSession
+        from sqlalchemy import delete
+        import uuid
+        
+        try:
+            async with async_session_maker() as db:
+                await db.execute(delete(ChatSession).where(ChatSession.id == uuid.UUID(session_id)))
+                await db.commit()
+                logger.info(f"Cleared session {session_id}")
+        except Exception as e:
+            logger.error(f"Failed to clear session {session_id}: {e}")
+
+# Singleton instance
+tutor_chat = TutorChatAgent()
 
 
 # Singleton instance

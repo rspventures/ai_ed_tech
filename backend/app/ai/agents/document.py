@@ -192,6 +192,7 @@ class DocumentAgent(BaseAgent):
             try:
                 # Step 1: Extract text
                 span.add_event("extracting_text")
+                print(f"[DocumentAgent] Extracting text from {params['filename']} (method: {params['extraction_method']})")
                 text = await self._extract_text(
                     params["file_path"],
                     params["extraction_method"]
@@ -209,22 +210,55 @@ class DocumentAgent(BaseAgent):
                 
                 # Step 2: Clean text
                 span.add_event("cleaning_text")
+                print(f"[DocumentAgent] Cleaning text...")
                 cleaned_text = self._clean_text(text)
                 
                 # Step 3: Chunk text
                 span.add_event("chunking_text")
+                print(f"[DocumentAgent] Chunking text...")
                 chunk_result = self._chunk_text(
                     cleaned_text,
                     params["chunk_size"],
                     params["chunk_overlap"]
                 )
+                print(f"[DocumentAgent] Created {len(chunk_result.chunks)} chunks")
                 
                 span.set_attribute("document.chunk_count", len(chunk_result.chunks))
                 span.set_attribute("document.total_tokens", chunk_result.total_tokens)
                 
                 # Step 4: Generate embeddings (if embedding service available)
                 span.add_event("generating_embeddings")
+                print(f"[DocumentAgent] Generating embeddings for {len(chunk_result.chunks)} chunks...")
                 embeddings = await self._generate_embeddings(chunk_result.chunks)
+                
+                # Step 5: Generate chunk contexts (Contextual Retrieval)
+                span.add_event("generating_contexts")
+                print(f"[DocumentAgent] Generating contextual retrieval contexts...")
+                contexts = await self._generate_chunk_contexts(
+                    chunks=chunk_result.chunks,
+                    filename=params["filename"],
+                    subject=params.get("subject"),
+                )
+                
+                # Step 6: Generate document summary
+                span.add_event("generating_summary")
+                print(f"[DocumentAgent] Generating document summary...")
+                summary = await self._generate_document_summary(
+                    text=cleaned_text,
+                    filename=params["filename"],
+                    subject=params.get("subject"),
+                )
+                
+                # Step 7: Generate section summaries for large documents
+                section_summaries = []
+                if len(cleaned_text) > 20000:  # Only for large documents
+                    span.add_event("generating_section_summaries")
+                    print(f"[DocumentAgent] Large document detected, generating section summaries...")
+                    section_summaries = await self._generate_section_summaries(
+                        text=cleaned_text,
+                        filename=params["filename"],
+                        subject=params.get("subject"),
+                    )
                 
                 # Return result (storage happens at service layer)
                 result = DocumentResult(
@@ -243,6 +277,9 @@ class DocumentAgent(BaseAgent):
                         "token_counts": chunk_result.token_counts,
                         "chunk_metadata": chunk_result.metadata,
                         "embeddings": embeddings,
+                        "contexts": contexts,
+                        "summary": summary,
+                        "section_summaries": section_summaries,  # NEW: Section-level summaries
                         "params": params,
                     },
                     state=AgentState.COMPLETED,
@@ -267,22 +304,119 @@ class DocumentAgent(BaseAgent):
             return await self._extract_text_file(file_path)
     
     async def _extract_pdf(self, file_path: str) -> str:
-        """Extract text from PDF file."""
+        """
+        Extract text from PDF file.
+        
+        Enhanced to detect image-based (scanned) pages and use
+        Vision OCR for better extraction.
+        """
         if not PYPDF_AVAILABLE:
             raise ImportError("pypdf is not installed. Run: pip install pypdf")
         
-        def _read_pdf():
+        def _read_pdf_with_images():
+            """Read PDF and identify pages that need OCR."""
             reader = PdfReader(file_path)
             text_parts = []
-            for page in reader.pages:
+            pages_needing_ocr = []
+            
+            for i, page in enumerate(reader.pages):
                 text = page.extract_text()
-                if text:
-                    text_parts.append(text)
-            return "\n\n".join(text_parts)
+                
+                # Check if page has meaningful text
+                if text and len(text.strip()) > 50:
+                    text_parts.append((i, text, False))  # (page_num, text, needs_ocr)
+                else:
+                    # Page might be image-based (scanned)
+                    # Check if page has images
+                    has_images = False
+                    try:
+                        if hasattr(page, 'images') and page.images:
+                            has_images = True
+                        elif '/XObject' in page.get('/Resources', {}):
+                            has_images = True
+                    except Exception:
+                        pass
+                    
+                    if has_images or len(text.strip()) < 20:
+                        pages_needing_ocr.append(i)
+                        text_parts.append((i, text or "", True))
+                    else:
+                        text_parts.append((i, text or "", False))
+            
+            return reader, text_parts, pages_needing_ocr
         
-        # Run in executor to not block async loop
+        # Run sync operation in executor
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _read_pdf)
+        reader, text_parts, pages_needing_ocr = await loop.run_in_executor(
+            None, _read_pdf_with_images
+        )
+        
+        # If there are pages needing OCR, try Vision OCR
+        if pages_needing_ocr:
+            try:
+                text_parts = await self._process_scanned_pages(
+                    file_path, text_parts, pages_needing_ocr
+                )
+            except Exception as e:
+                print(f"[DocumentAgent] Vision OCR failed, using basic extraction: {e}")
+        
+        # Combine all text
+        final_text = "\n\n".join([
+            part[1] for part in sorted(text_parts, key=lambda x: x[0])
+            if part[1].strip()
+        ])
+        
+        return final_text
+    
+    async def _process_scanned_pages(
+        self,
+        file_path: str,
+        text_parts: list,
+        pages_needing_ocr: list,
+    ) -> list:
+        """Process scanned pages using Vision OCR."""
+        try:
+            from app.ai.agents.vision_ocr import vision_ocr_agent
+            import fitz  # PyMuPDF for image extraction
+        except ImportError:
+            # PyMuPDF not available, return original
+            return text_parts
+        
+        try:
+            doc = fitz.open(file_path)
+            
+            for page_num in pages_needing_ocr:
+                if page_num >= len(doc):
+                    continue
+                
+                page = doc[page_num]
+                
+                # Render page as image
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better OCR
+                img_bytes = pix.tobytes("png")
+                
+                import base64
+                img_base64 = base64.b64encode(img_bytes).decode("utf-8")
+                
+                # Run OCR
+                ocr_result = await vision_ocr_agent.ocr_image(
+                    image_data=img_base64,
+                    page_number=page_num + 1,
+                )
+                
+                if ocr_result.text:
+                    # Update the text for this page
+                    for i, part in enumerate(text_parts):
+                        if part[0] == page_num:
+                            text_parts[i] = (page_num, ocr_result.text, False)
+                            break
+            
+            doc.close()
+            
+        except Exception as e:
+            print(f"[DocumentAgent] Page OCR processing failed: {e}")
+        
+        return text_parts
     
     async def _extract_docx(self, file_path: str) -> str:
         """Extract text from DOCX file."""
@@ -453,6 +587,361 @@ class DocumentAgent(BaseAgent):
             print(f"[DocumentAgent] Embedding generation failed: {e}")
             # Return empty embeddings - allows document to be stored without vectors
             return []
+    
+    async def _generate_chunk_contexts(
+        self, 
+        chunks: List[str],
+        filename: str,
+        subject: Optional[str] = None,
+        batch_size: int = 5,
+    ) -> List[str]:
+        """
+        Generate contextual descriptions for each chunk.
+        
+        This implements Contextual Retrieval where each chunk is enriched
+        with LLM-generated context explaining its relevance to the document.
+        
+        Args:
+            chunks: List of chunk texts
+            filename: Document filename for context
+            subject: Optional subject for better context
+            batch_size: Number of chunks to process in parallel
+            
+        Returns:
+            List of context strings, one per chunk
+        """
+        if not chunks:
+            return []
+        
+        # Check if contextual retrieval is enabled (disabled by default for speed)
+        enable_contexts = os.getenv("ENABLE_CONTEXTUAL_RETRIEVAL", "false").lower() == "true"
+        if not enable_contexts:
+            print(f"[DocumentAgent] Contextual retrieval disabled (set ENABLE_CONTEXTUAL_RETRIEVAL=true to enable)")
+            return [""] * len(chunks)
+        
+        contexts = []
+        
+        # System prompt for context generation
+        context_system_prompt = """You are a document analyst. Given a chunk of text from a document, 
+generate a brief 1-2 sentence context explaining:
+1. What this chunk is about
+2. How it might relate to the broader document topic
+
+Be concise and factual. Focus on key concepts and terms that would help find this chunk later.
+Do not include phrases like "This chunk..." - just state the context directly."""
+
+        try:
+            # Process in batches to avoid rate limits
+            for i in range(0, len(chunks), batch_size):
+                batch = chunks[i:i + batch_size]
+                
+                # Generate contexts in parallel for each batch
+                batch_contexts = []
+                for j, chunk in enumerate(batch):
+                    chunk_preview = chunk[:500] if len(chunk) > 500 else chunk
+                    
+                    prompt = f"""Document: {filename}
+{f'Subject: {subject}' if subject else ''}
+Chunk {i + j + 1}:
+{chunk_preview}
+
+Generate a brief context (1-2 sentences) for this chunk:"""
+
+                    try:
+                        response = await self.llm.generate(
+                            prompt=prompt,
+                            system_prompt=context_system_prompt,
+                            agent_name=self.name,
+                        )
+                        batch_contexts.append(response.content.strip())
+                    except Exception as e:
+                        print(f"[DocumentAgent] Context generation failed for chunk {i + j}: {e}")
+                        batch_contexts.append("")
+                
+                contexts.extend(batch_contexts)
+            
+            return contexts
+            
+        except Exception as e:
+            print(f"[DocumentAgent] Context generation failed: {e}")
+            # Return empty contexts - graceful degradation
+            return [""] * len(chunks)
+    
+    async def _generate_document_summary(
+        self,
+        text: str,
+        filename: str,
+        subject: Optional[str] = None,
+    ) -> str:
+        """
+        Generate a comprehensive summary of the entire document using map-reduce approach.
+        
+        Processes the document in batches to ensure complete coverage of all content,
+        which is critical for academic/educational documents.
+        
+        Args:
+            text: Full document text
+            filename: Document filename
+            subject: Optional subject
+            
+        Returns:
+            Comprehensive document summary covering all sections
+        """
+        text_length = len(text)
+        print(f"[DocumentAgent] Summarizing document ({text_length} chars)...")
+        
+        # For short documents, summarize directly
+        if text_length <= 10000:
+            return await self._summarize_text_chunk(text, filename, subject, is_final=True)
+        
+        # For longer documents, use map-reduce approach
+        # Step 1: MAP - Split into chunks and summarize each
+        chunk_size = 8000  # Characters per chunk (fits well in context window)
+        chunks = []
+        
+        for i in range(0, text_length, chunk_size):
+            chunk = text[i:i + chunk_size]
+            chunks.append(chunk)
+        
+        print(f"[DocumentAgent] Processing {len(chunks)} chunks for comprehensive summary...")
+        
+        # Generate summary for each chunk
+        chunk_summaries = []
+        for i, chunk in enumerate(chunks):
+            print(f"[DocumentAgent] Summarizing chunk {i+1}/{len(chunks)}...")
+            try:
+                chunk_summary = await self._summarize_text_chunk(
+                    chunk, 
+                    filename, 
+                    subject, 
+                    chunk_num=i+1,
+                    total_chunks=len(chunks),
+                    is_final=False
+                )
+                if chunk_summary:
+                    chunk_summaries.append(f"[Section {i+1}] {chunk_summary}")
+            except Exception as e:
+                print(f"[DocumentAgent] Failed to summarize chunk {i+1}: {e}")
+                continue
+        
+        if not chunk_summaries:
+            print("[DocumentAgent] No chunk summaries generated, using fallback")
+            return await self._summarize_text_chunk(text[:10000], filename, subject, is_final=True)
+        
+        # Step 2: REDUCE - Combine all chunk summaries into final comprehensive summary
+        print(f"[DocumentAgent] Combining {len(chunk_summaries)} section summaries...")
+        combined_summaries = "\n\n".join(chunk_summaries)
+        
+        reduce_prompt = f"""Document: {filename}
+{f'Subject: {subject}' if subject else ''}
+Total document length: ~{text_length // 1000}k characters ({len(chunks)} sections)
+
+The following are summaries of each section of the document:
+
+{combined_summaries}
+
+Based on ALL the section summaries above, create a comprehensive document summary that:
+1. Describes the overall purpose and scope of the document
+2. Lists ALL major topics, chapters, or units covered
+3. Highlights key concepts, formulas, or important points throughout
+4. Identifies the syllabus structure or learning progression if applicable
+5. Notes any important examples, exercises, or assessment sections
+
+Write a detailed, comprehensive summary (8-15 sentences) that captures everything important in this educational document:"""
+
+        try:
+            response = await self.llm.generate(
+                prompt=reduce_prompt,
+                system_prompt="You are an educational document summarizer. Create comprehensive summaries that capture ALL major topics and sections, as this will be used to help students understand the full scope of their study material.",
+                agent_name=self.name,
+            )
+            final_summary = response.content.strip()
+            print(f"[DocumentAgent] Comprehensive summary generated ({len(final_summary)} chars)")
+            return final_summary
+        except Exception as e:
+            print(f"[DocumentAgent] Final summary generation failed: {e}")
+            # Fallback: join chunk summaries
+            return " ".join([s.replace(f"[Section {i+1}] ", "") for i, s in enumerate(chunk_summaries)])
+    
+    async def _summarize_text_chunk(
+        self,
+        text: str,
+        filename: str,
+        subject: Optional[str] = None,
+        chunk_num: int = 0,
+        total_chunks: int = 0,
+        is_final: bool = False,
+    ) -> str:
+        """Summarize a single chunk of text."""
+        if is_final:
+            prompt = f"""Document: {filename}
+{f'Subject: {subject}' if subject else ''}
+
+Content:
+{text}
+
+Generate a comprehensive summary of this document that includes:
+- Main topics and purpose
+- Key sections or chapters
+- Important concepts and learning points
+- Target audience or grade level
+
+Write a detailed summary (4-8 sentences):"""
+        else:
+            prompt = f"""Document: {filename} (Section {chunk_num} of {total_chunks})
+{f'Subject: {subject}' if subject else ''}
+
+Content from this section:
+{text}
+
+Summarize the key topics, concepts, and important points covered in this section (2-4 sentences):"""
+
+        try:
+            response = await self.llm.generate(
+                prompt=prompt,
+                system_prompt="You are an educational content summarizer. Extract and summarize all important topics, concepts, and learning points.",
+                agent_name=self.name,
+            )
+            return response.content.strip()
+        except Exception as e:
+            print(f"[DocumentAgent] Chunk summary failed: {e}")
+            return ""
+    
+    async def _generate_section_summaries(
+        self,
+        text: str,
+        filename: str,
+        subject: Optional[str] = None,
+    ) -> List[dict]:
+        """
+        Detect sections/chapters in the document and generate summaries for each.
+        
+        Returns a list of section summaries with metadata for indexing.
+        """
+        import re
+        
+        # Patterns to detect section headers
+        section_patterns = [
+            r'(?:^|\n)\s*(?:CHAPTER|Chapter|UNIT|Unit)\s*[:\-]?\s*(\d+|[IVXivx]+)[\s:.\-]*([^\n]+)',
+            r'(?:^|\n)\s*(?:SECTION|Section)\s*[:\-]?\s*(\d+|[A-Za-z])[\s:.\-]*([^\n]+)',
+            r'(?:^|\n)\s*(?:PART|Part)\s*[:\-]?\s*(\d+|[IVXivx]+|[A-Z])[\s:.\-]*([^\n]+)',
+            r'(?:^|\n)\s*(\d+)\.\s*([A-Z][^\n]{5,50})',  # "1. Topic Name" format
+            r'(?:^|\n)\s*([IVXivx]+)\.\s*([A-Z][^\n]{5,50})',  # "IV. Topic Name" format
+        ]
+        
+        sections = []
+        
+        # Find all section headers
+        for pattern in section_patterns:
+            matches = re.finditer(pattern, text)
+            for match in matches:
+                section_num = match.group(1)
+                section_title = match.group(2).strip() if match.lastindex >= 2 else ""
+                start_pos = match.start()
+                
+                sections.append({
+                    "number": section_num,
+                    "title": section_title,
+                    "start": start_pos,
+                    "header": match.group(0).strip(),
+                })
+        
+        if not sections:
+            print(f"[DocumentAgent] No sections detected in document")
+            return []
+        
+        # Sort by position and remove duplicates
+        sections = sorted(sections, key=lambda x: x["start"])
+        
+        # Deduplicate overlapping sections
+        unique_sections = []
+        last_start = -1000
+        for s in sections:
+            if s["start"] - last_start > 100:  # At least 100 chars apart
+                unique_sections.append(s)
+                last_start = s["start"]
+        sections = unique_sections
+        
+        if len(sections) > 50:
+            # Too many sections indicates fragmentation.
+            # Try filtering for only "Major" headers (Chapter/Unit/Part)
+            major_sections = [s for s in sections if any(x in s['header'].upper() for x in ['CHAPTER', 'UNIT', 'PART'])]
+            
+            if len(major_sections) >= 3:
+                print(f"[DocumentAgent] High fragmentation ({len(sections)} sections). Switching to Major Headers only.")
+                sections = major_sections
+        
+        # Check for fragmentation again
+        avg_len = len(text) / max(1, len(sections))
+        is_fragmented = len(sections) > 40 and avg_len < 3000
+        
+        # Fallback: Page-based grouping if sections are poor or too fragmented
+        if not sections or is_fragmented:
+            print(f"[DocumentAgent] Section detection inadequate (Count: {len(sections)}, AvgLen: {int(avg_len)}). Using Page-Based Grouping.")
+            
+            # Group text into 10-page chunks (approx 20-30k chars) 
+            # consistently covering the WHOLE document
+            total_chars = len(text)
+            chunk_size = 25000  # Approx 8-10 pages worth of text
+            sections = []
+            
+            for i in range(0, total_chars, chunk_size):
+                end = min(i + chunk_size, total_chars)
+                page_est_start = (i // 3000) + 1
+                page_est_end = (end // 3000) + 1
+                
+                sections.append({
+                    "number": f"{page_est_start}-{page_est_end}",
+                    "title": f"Pages {page_est_start}-{page_est_end}",
+                    "start": i,
+                    "header": f"Pages {page_est_start}-{page_est_end}",
+                })
+
+        print(f"[DocumentAgent] Final Sections: {len(sections)}. Generating summaries...")
+        
+        # Extract content for each section and generate summaries
+        section_summaries = []
+        for i, section in enumerate(sections):
+            # Get section content (text between this header and next)
+            start = section["start"]
+            end = sections[i + 1]["start"] if i + 1 < len(sections) else len(text)
+            
+            # Increased limit to 15000 chars per section
+            section_content = text[start:min(start + 15000, end)]
+            
+            if len(section_content) < 100:  # Skip very short sections
+                continue
+            
+            try:
+                prompt = f"""Section: {section.get("title", "Unknown")}
+
+Content:
+{section_content}
+
+Summarize this section's main topics and key points (2-3 sentences):"""
+
+                response = await self.llm.generate(
+                    prompt=prompt,
+                    system_prompt="You are summarizing educational content. Be concise and capture key learning points.",
+                    agent_name=self.name,
+                )
+                
+                section_summaries.append({
+                    "section_number": section["number"],
+                    "section_title": section.get("title", ""),
+                    "summary": response.content.strip(),
+                    "type": "section_summary",
+                    "is_meta_chunk": True,
+                })
+                
+                print(f"[DocumentAgent] Summarized section {i+1}: {section.get('title', 'Unknown')[:30]}...")
+                
+            except Exception as e:
+                print(f"[DocumentAgent] Failed to summarize section {i+1}: {e}")
+                continue
+        
+        print(f"[DocumentAgent] Generated {len(section_summaries)} section summaries")
+        return section_summaries
     
     async def process_file(
         self,

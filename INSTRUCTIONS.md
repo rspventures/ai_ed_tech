@@ -5,6 +5,32 @@
 
 ---
 
+## 🧪 Test Accounts
+
+| Role | Email | Password | Notes |
+|------|-------|----------|-------|
+| **Admin** | `admintest1@gmail.com` | `Admintest1@` | For testing Admin dashboard, Grades, Assignments |
+| **Student** | `testuser1@gmail.com` | `Testuser1@` | Grade 4 student for testing student features |
+
+---
+
+## 🗄️ Database Connection
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| **Container** | `ai_tutor_db` | Docker container name |
+| **Database** | `ai_tutor` | Main application database |
+| **User** | `postgres` | Database user |
+| **Host** | `localhost` / `ai_tutor_db` (inside Docker) | Connection host |
+| **Port** | `5432` | PostgreSQL default port |
+
+### Running Migrations
+```bash
+docker exec -i ai_tutor_db psql -U postgres -d ai_tutor < backend/migrations/your_migration.sql
+```
+
+---
+
 ## 🏗️ 1. Project Architecture (FUNDAMENTAL)
 
 This project follows the **Agentic AI Architecture** pattern. Every new AI feature should be implemented using this pattern.
@@ -33,8 +59,49 @@ backend/app/ai/agents/
 ├── lesson.py         # Lesson content generation
 ├── reviewer.py       # Spaced repetition
 ├── image_agent.py    # Image generation
+├── entity_extractor.py # Entity extraction for Graph RAG
 └── ...
 ```
+
+### LangGraph Orchestration (Phase 7+):
+
+For complex multi-step workflows with conditional branching, retries, or loops, use **LangGraph graphs** alongside agents.
+
+```
+backend/app/ai/graphs/
+├── __init__.py         # Module exports
+├── base.py             # GraphState, utilities
+├── document_graph.py   # Document processing pipeline
+└── rag_graph.py        # Corrective RAG with self-correction
+```
+
+#### When to Use LangGraph vs BaseAgent:
+| Use Case | Use |
+|----------|-----|
+| Simple LLM call with safety | BaseAgent |
+| Multi-step with fixed sequence | BaseAgent |
+| Conditional branching (if/else) | LangGraph |
+| Retry loops with state | LangGraph |
+| Complex workflows with checkpoints | LangGraph |
+
+#### LangGraph Pattern:
+```python
+from langgraph.graph import StateGraph, END
+
+class MyGraph:
+    def __init__(self):
+        workflow = StateGraph(MyState)
+        workflow.add_node("step1", self._step1)
+        workflow.add_node("step2", self._step2)
+        workflow.set_entry_point("step1")
+        workflow.add_conditional_edges("step1", self._route, {...})
+        self._graph = workflow.compile()
+    
+    async def run(self, input_data):
+        return await self._graph.ainvoke(input_data)
+```
+
+> **Note:** LangGraph graphs should work alongside BaseAgent. Agents handle individual steps, graphs orchestrate the flow.
 
 ---
 
@@ -160,6 +227,19 @@ migrations/
 ### Disabled Migrations:
 Files ending in `.disabled` have already been applied. **DO NOT re-run them.**
 
+### Fresh Setup (First Pull from GitHub):
+For **fresh setups**, migrations run **automatically** via `docker-entrypoint-initdb.d`:
+1. The `backend/migrations/` folder is mounted to PostgreSQL's init directory
+2. SQL files are executed **alphabetically** on first DB initialization
+3. Use numeric prefixes for ordering: `00_init.sql`, `01_users.sql`, `04_phase4.sql`
+4. Files with `.disabled` suffix are ignored by PostgreSQL
+
+> **Important**: This only runs when the DB volume is **empty** (first `docker-compose up`).
+> For **existing databases**, run migrations manually:
+> ```bash
+> docker exec -i ai_tutor_db psql -U postgres -d ai_tutor -f /docker-entrypoint-initdb.d/04_phase4_teacher_suite.sql
+> ```
+
 ### Migration Best Practices:
 ```sql
 -- ✅ GOOD: Idempotent migration
@@ -178,6 +258,8 @@ ALTER TABLE my_table ADD COLUMN new_column TEXT;
 - `questions`, `assessments`, `assessment_questions`
 - `documents`, `document_chunks`
 - `gamification_profiles`, `achievements`, `student_achievements`
+- `schools`, `classes`, `class_enrollments` (Phase 4)
+- `assignments`, `assignment_submissions`, `class_announcements` (Phase 4)
 
 ---
 
@@ -294,6 +376,25 @@ docker exec -it ai_tutor_backend python -c "import asyncio; from app.scripts.see
 | Frontend Pages | `frontend/src/pages/` |
 | **Documentation** | `README.md`, `INSTRUCTIONS.md` |
 | **Docker Config** | `docker-compose.yml` |
+
+---
+
+## 🌐 11.5. Frontend Development Guidelines (MANDATORY)
+
+> **All frontend changes MUST be implemented for BOTH web and mobile platforms.**
+
+### Key Requirements:
+1. **Responsive Design** - All UI components must work on desktop and mobile viewports
+2. **Touch-Friendly** - Buttons and interactive elements must have adequate touch targets (min 44px)
+3. **Test Both** - Verify changes on both desktop (Chrome) and mobile (Chrome DevTools mobile emulation)
+4. **Shared Components** - Use shared components in `frontend/src/components/` for consistency
+
+### Mobile Testing Checklist:
+- [ ] UI renders correctly at 375px width (iPhone SE)
+- [ ] UI renders correctly at 414px width (iPhone 12 Pro)
+- [ ] Touch targets are at least 44x44px
+- [ ] No horizontal scrolling on mobile
+- [ ] Forms are usable with mobile keyboard
 
 ---
 
@@ -440,4 +541,3 @@ git commit -m "Add .env to gitignore"
 ---
 
 *Last Updated: December 21, 2025*
-
