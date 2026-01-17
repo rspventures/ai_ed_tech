@@ -11,8 +11,10 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Auto-run migrations on first start
-      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+      # Only mount init scripts (extensions, langfuse db) - NOT additive migrations
+      # Additive migrations (07, 08, 09) are run by the backend after table creation
+      - ./backend/migrations/00_init_vector.sql:/docker-entrypoint-initdb.d/00_init_vector.sql:ro
+      - ./backend/migrations/00_create_langfuse_db.sql:/docker-entrypoint-initdb.d/00_create_langfuse_db.sql:ro
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 10s
@@ -32,6 +34,35 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Neo4j Graph Database (for Graph RAG)
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: ai_tutor_neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_PLUGINS=["apoc"]
+    ports:
+      - "7474:7474" # Browser UI
+      - "7687:7687" # Bolt protocol
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Arize Phoenix - RAG Metrics and Evaluation
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: ai_tutor_phoenix
+    ports:
+      - "6006:6006" # Phoenix UI
+    environment:
+      - PHOENIX_WORKING_DIR=/mnt/data
+    volumes:
+      - phoenix_data:/mnt/data
 
   # Jaeger - Distributed Tracing for Agent Observability
   jaeger:
@@ -220,8 +251,9 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - SECRET_KEY=dev-secret-key-change-in-production
-      - CORS_ORIGINS_STR=http://localhost:3000
+      - CORS_ORIGINS_STR=*
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - COHERE_API_KEY=${COHERE_API_KEY}
       # OpenTelemetry Configuration
       - OTEL_SERVICE_NAME=ai-tutor-backend
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
@@ -244,6 +276,7 @@ services:
         condition: service_started
     volumes:
       - ./backend/app:/app/app
+      - ./backend/migrations:/app/migrations
 
   # Frontend
   frontend:
@@ -252,7 +285,7 @@ services:
       dockerfile: Dockerfile
     container_name: ai_tutor_frontend
     environment:
-      - VITE_API_URL=http://localhost:8000/api/v1
+      - VITE_API_URL=/api/v1
     ports:
       - "3000:3000"
     depends_on:
@@ -264,6 +297,8 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  neo4j_data:
+  phoenix_data:
   clickhouse_data:
   clickhouse_logs:
   minio_data:

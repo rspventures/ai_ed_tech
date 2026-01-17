@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import init_db, run_sql_migrations
 
 
 @asynccontextmanager
@@ -30,9 +30,11 @@ async def lifespan(app: FastAPI):
     
     # Initialize database tables
     await init_db()
-    # Initialize database tables
-    await init_db()
     print("[Startup] Database tables initialized")
+    
+    # Run SQL migrations (additive scripts that depend on base tables)
+    await run_sql_migrations()
+    print("[Startup] SQL migrations executed")
 
     # Initialize Langfuse Observability
     try:
@@ -100,6 +102,15 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "version": settings.APP_VERSION,
             "environment": settings.ENVIRONMENT,
+        }
+
+    # Add a specific health check for API v1 prefix to satisfy Nginx/Frontend expectations
+    @app.get(f"{settings.API_V1_PREFIX}/health", tags=["Health"])
+    async def api_v1_health_check():
+        """API V1 Health check."""
+        return {
+            "status": "healthy",
+            "version": settings.APP_VERSION,
         }
     
     return app
