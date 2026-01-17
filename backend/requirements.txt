@@ -13,29 +13,32 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-multipart==0.0.9
-httpx==0.26.0
-langchain==0.1.0
-langchain-openai==0.0.5
-langchain-anthropic==0.1.1
-langgraph==0.0.20
+httpx>=0.25.0
 email-validator==2.1.0
 aiosqlite==0.19.0
 
+# LangChain ecosystem (upgraded for compatibility)
+langchain>=0.2.0,<0.3.0
+langchain-openai>=0.1.0
+langchain-anthropic>=0.1.5
+langchain-community>=0.2.0,<0.3.0
+langgraph>=0.2.0
+
 # OpenTelemetry - Agent Observability & Tracing
-opentelemetry-api==1.21.0
-opentelemetry-sdk==1.21.0
-opentelemetry-exporter-otlp==1.21.0
-opentelemetry-instrumentation-fastapi==0.42b0
-opentelemetry-instrumentation-httpx==0.42b0
-opentelemetry-instrumentation-redis==0.42b0
-opentelemetry-instrumentation-sqlalchemy==0.42b0
+opentelemetry-api>=1.21.0
+opentelemetry-sdk>=1.21.0
+opentelemetry-exporter-otlp>=1.21.0
+opentelemetry-instrumentation-fastapi>=0.42b0
+opentelemetry-instrumentation-httpx>=0.42b0
+opentelemetry-instrumentation-redis>=0.42b0
+opentelemetry-instrumentation-sqlalchemy>=0.42b0
 
 # RAG - Document Processing & Vector Storage
 pgvector==0.2.4
-pypdf==4.0.1
-python-docx==1.1.0
-tiktoken==0.5.2
-aiofiles==23.2.1
+pypdf>=4.0.1
+python-docx>=1.1.0
+tiktoken>=0.5.2
+aiofiles>=23.2.1
 
 # Phase 3A - Safety & PII Protection
 presidio-analyzer>=2.2.0
@@ -48,3 +51,18 @@ langfuse>=2.0.0
 # Phase 6 - Voice Mode (OpenAI Realtime API)
 websockets>=12.0
 
+# Phase 7 - Hybrid Search & Retrieval
+rank-bm25>=0.2.2
+cohere>=5.0.0
+
+# Phase 7 - Graph RAG
+neo4j>=5.15.0
+
+# Phase 7 - Multimodal OCR
+PyMuPDF>=1.24.0
+
+# Phase 7 - RAG Observability with Phoenix
+# Using openinference for LangChain instrumentation (lighter than full phoenix)
+openinference-instrumentation-langchain>=0.1.20
+openinference-semantic-conventions>=0.1.20
+arize-phoenix-otel>=0.5.0

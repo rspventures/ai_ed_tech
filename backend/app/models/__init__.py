@@ -17,6 +17,11 @@ from app.models.document import (
     GeneratedImage,
     DocumentStatus,
 )
+from app.models.chat import (
+    ChatSession,
+    ChatMessage,
+    MessageRole,
+)
 
 
 __all__ = [
@@ -43,6 +48,10 @@ __all__ = [
     "DocumentChunk",
     "GeneratedImage",
     "DocumentStatus",
+    # Chat models
+    "ChatSession",
+    "ChatMessage",
+    "MessageRole",
 ]
 
 

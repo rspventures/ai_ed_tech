@@ -2,7 +2,7 @@
  * Chat Service - API calls for the interactive AI tutor
  */
 import api from './api'
-import type { ChatRequest, ChatResponse, ChatHistory } from '@/types'
+import type { ChatRequest, ChatResponse, ChatHistory, ChatSessionSummary } from '@/types'
 
 export const chatService = {
     /**
@@ -10,6 +10,14 @@ export const chatService = {
      */
     async askTutor(request: ChatRequest): Promise<ChatResponse> {
         const response = await api.post('/chat/ask', request)
+        return response.data
+    },
+
+    /**
+     * Get list of user's chat sessions
+     */
+    async getSessions(): Promise<ChatSessionSummary[]> {
+        const response = await api.get('/chat/sessions')
         return response.data
     },
 
