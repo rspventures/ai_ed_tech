@@ -48,7 +48,30 @@ export const studyService = {
     }> {
         const response = await api.get(`/study/subtopic/${subtopicId}/progress`);
         return response.data;
+    },
+
+    // ========================================================================
+    // Flashcard Methods
+    // ========================================================================
+
+    /**
+     * Get or generate a flashcard deck for a subtopic
+     */
+    async getFlashcards(subtopicId: string): Promise<import('./types').FlashcardDeck> {
+        const response = await api.get(`/study/flashcards/${subtopicId}`, {
+            timeout: 60000, // 60 seconds for LLM generation
+        });
+        return response.data;
+    },
+
+    /**
+     * List all flashcard decks for a topic
+     */
+    async listFlashcardDecks(topicId: string): Promise<import('./types').FlashcardDeckListItem[]> {
+        const response = await api.get(`/study/flashcards/topic/${topicId}`);
+        return response.data;
     }
 };
 
 export default studyService;
+

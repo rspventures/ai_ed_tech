@@ -8,6 +8,8 @@ from app.models.curriculum import (
     DifficultyLevel,
 )
 from app.models.lesson import GeneratedLesson, StudentLessonProgress
+from app.models.flashcard import FlashcardDeck, StudentFlashcardProgress
+from app.models.favorite import StudentFavorite
 from app.models.assessment import AssessmentResult
 from app.models.exam import ExamResult
 from app.models.test import TestResult
@@ -39,6 +41,11 @@ __all__ = [
     # Lesson models
     "GeneratedLesson",
     "StudentLessonProgress",
+    # Flashcard models
+    "FlashcardDeck",
+    "StudentFlashcardProgress",
+    # Favorite models
+    "StudentFavorite",
     # Assessment, Exam & Test models
     "AssessmentResult",
     "ExamResult",
@@ -53,5 +60,3 @@ __all__ = [
     "ChatMessage",
     "MessageRole",
 ]
-
-

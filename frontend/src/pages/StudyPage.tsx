@@ -13,13 +13,15 @@ import {
     ChevronDown,
     Play,
     Lock,
-    Star
+    Star,
+    Layers
 } from 'lucide-react'
 
 import { studyService } from '@/services/study'
 import { curriculumService } from '@/services/curriculum'
 import LessonView from '@/components/LessonView'
-import type { Topic, Subtopic, Lesson, StudyAction, LearningPath } from '@/types'
+import LessonViewV2 from '@/components/LessonViewV2'
+import type { Topic, Subtopic, Lesson, LessonV2, StudyAction, LearningPath } from '@/types'
 
 type StudyState = 'loading' | 'overview' | 'lesson' | 'redirecting' | 'complete' | 'error'
 
@@ -43,8 +45,10 @@ export default function StudyPage() {
     const [subtopics, setSubtopics] = useState<SubtopicWithProgress[]>([])
     const [learningPath, setLearningPath] = useState<LearningPath | null>(null)
     const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null)
+    const [currentLessonV2, setCurrentLessonV2] = useState<LessonV2 | null>(null)
     const [isCompleting, setIsCompleting] = useState(false)
     const [expandedSubtopic, setExpandedSubtopic] = useState<string | null>(null)
+    // const [useV2, setUseV2] = useState(true) // Forced V2
 
     useEffect(() => {
         loadStudyData()
@@ -106,8 +110,12 @@ export default function StudyPage() {
     const loadLesson = async (subtopicId: string) => {
         setState('loading')
         try {
-            const lesson = await studyService.getLesson(subtopicId)
-            setCurrentLesson(lesson)
+            // STRICT V2 ONLY - No Fallback
+            // Load interactive V2 lesson
+            const lessonV2 = await studyService.getLessonV2(subtopicId)
+            setCurrentLessonV2(lessonV2)
+            setCurrentLesson(null)
+
             setState('lesson')
         } catch (err) {
             console.error('Failed to load lesson:', err)
@@ -146,11 +154,13 @@ export default function StudyPage() {
     }
 
     const handleLessonComplete = async (timeSpentSeconds: number) => {
-        if (!currentLesson) return
+        // Support both V1 and V2 lessons
+        const lessonId = currentLessonV2?.id || currentLesson?.id
+        if (!lessonId) return
 
         setIsCompleting(true)
         try {
-            await studyService.completeLesson(currentLesson.id, timeSpentSeconds)
+            await studyService.completeLesson(lessonId, timeSpentSeconds)
             // Refresh the learning path and subtopic progress
             if (topic) {
                 const path = await studyService.getLearningPath(topic.id)
@@ -158,7 +168,11 @@ export default function StudyPage() {
                 await loadStudyData()
             }
             // Update lesson state
-            setCurrentLesson({ ...currentLesson, is_completed: true })
+            if (currentLessonV2) {
+                setCurrentLessonV2({ ...currentLessonV2, is_completed: true })
+            } else if (currentLesson) {
+                setCurrentLesson({ ...currentLesson, is_completed: true })
+            }
         } catch (err) {
             console.error('Failed to complete lesson:', err)
         } finally {
@@ -168,6 +182,7 @@ export default function StudyPage() {
 
     const handleBackToOverview = () => {
         setCurrentLesson(null)
+        setCurrentLessonV2(null)
         setState('overview')
         // Remove lesson param from URL
         navigate(`/study/${topicSlug}`, { replace: true })
@@ -228,8 +243,8 @@ export default function StudyPage() {
         )
     }
 
-    // Lesson view
-    if (state === 'lesson' && currentLesson) {
+    // Lesson view (V2 interactive or V1 classic)
+    if (state === 'lesson' && (currentLessonV2 || currentLesson)) {
         return (
             <div className="min-h-screen py-8 px-4 sm:px-6 lg:px-8">
                 <button
@@ -238,11 +253,14 @@ export default function StudyPage() {
                 >
                     ← Back to Overview
                 </button>
-                <LessonView
-                    lesson={currentLesson}
-                    onComplete={handleLessonComplete}
-                    isCompleting={isCompleting}
-                />
+
+                {currentLessonV2 && (
+                    <LessonViewV2
+                        lesson={currentLessonV2}
+                        onComplete={handleLessonComplete}
+                        isCompleting={isCompleting}
+                    />
+                )}
             </div>
         )
     }
@@ -259,10 +277,29 @@ export default function StudyPage() {
                     >
                         ← Back to Dashboard
                     </button>
-                    <h1 className="text-3xl font-bold text-white mb-2">
-                        {topic.name}
-                    </h1>
-                    <p className="text-gray-400">{topic.description}</p>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h1 className="text-3xl font-bold text-white mb-2">
+                                {topic.name}
+                            </h1>
+                            <p className="text-gray-400">{topic.description}</p>
+                        </div>
+                        <button
+                            onClick={() => navigate(`/flashcards/${topicSlug}`)}
+                            className="btn-secondary flex items-center gap-2"
+                        >
+                            <Layers className="w-5 h-5" />
+                            Flashcards
+                        </button>
+                        <button
+                            onClick={() => navigate(`/quick-review?topic=${topic.id}`)}
+                            className="px-4 py-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg
+                                       text-yellow-300 hover:bg-yellow-500/30 transition-colors flex items-center gap-2 text-sm font-medium"
+                        >
+                            <Star className="w-5 h-5" />
+                            My Stars
+                        </button>
+                    </div>
                 </div>
 
                 {/* Progress Overview */}
@@ -315,10 +352,10 @@ export default function StudyPage() {
                     <div className="glass-card p-6 mb-8 border-l-4 border-primary-500">
                         <div className="flex items-center gap-4">
                             <div className={`w-12 h-12 rounded-full flex items-center justify-center ${learningPath.next_action.action_type === 'lesson'
-                                    ? 'bg-blue-500/20'
-                                    : learningPath.next_action.action_type === 'practice'
-                                        ? 'bg-green-500/20'
-                                        : 'bg-purple-500/20'
+                                ? 'bg-blue-500/20'
+                                : learningPath.next_action.action_type === 'practice'
+                                    ? 'bg-green-500/20'
+                                    : 'bg-purple-500/20'
                                 }`}>
                                 {learningPath.next_action.action_type === 'lesson' && (
                                     <BookOpen className="w-6 h-6 text-blue-400" />
@@ -375,10 +412,10 @@ export default function StudyPage() {
                                     <div className="flex items-center gap-4">
                                         {/* Number Badge */}
                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${subtopic.mastery_level >= 0.7
-                                                ? 'bg-green-500/20 text-green-400'
-                                                : subtopic.lesson_completed
-                                                    ? 'bg-yellow-500/20 text-yellow-400'
-                                                    : 'bg-white/10 text-gray-400'
+                                            ? 'bg-green-500/20 text-green-400'
+                                            : subtopic.lesson_completed
+                                                ? 'bg-yellow-500/20 text-yellow-400'
+                                                : 'bg-white/10 text-gray-400'
                                             }`}>
                                             {subtopic.mastery_level >= 0.7 ? '✓' : index + 1}
                                         </div>
@@ -390,10 +427,10 @@ export default function StudyPage() {
                                                     {subtopic.name}
                                                 </h3>
                                                 <span className={`text-xs px-2 py-0.5 rounded-full ${subtopic.difficulty === 'hard'
-                                                        ? 'bg-red-500/20 text-red-400'
-                                                        : subtopic.difficulty === 'medium'
-                                                            ? 'bg-yellow-500/20 text-yellow-400'
-                                                            : 'bg-green-500/20 text-green-400'
+                                                    ? 'bg-red-500/20 text-red-400'
+                                                    : subtopic.difficulty === 'medium'
+                                                        ? 'bg-yellow-500/20 text-yellow-400'
+                                                        : 'bg-green-500/20 text-green-400'
                                                     }`}>
                                                     {subtopic.difficulty}
                                                 </span>
@@ -435,8 +472,8 @@ export default function StudyPage() {
                                                     handleStartLesson(subtopic.id)
                                                 }}
                                                 className={`p-3 rounded-xl text-center transition-all ${subtopic.lesson_completed
-                                                        ? 'bg-blue-500/20 hover:bg-blue-500/30'
-                                                        : 'bg-blue-500/30 hover:bg-blue-500/40 ring-2 ring-blue-500/50'
+                                                    ? 'bg-blue-500/20 hover:bg-blue-500/30'
+                                                    : 'bg-blue-500/30 hover:bg-blue-500/40 ring-2 ring-blue-500/50'
                                                     }`}
                                             >
                                                 <BookOpen className="w-5 h-5 text-blue-400 mx-auto mb-1" />
@@ -472,8 +509,8 @@ export default function StudyPage() {
                                                     handleStartAssessment(subtopic.id)
                                                 }}
                                                 className={`p-3 rounded-xl text-center transition-all ${subtopic.mastery_level >= 0.4
-                                                        ? 'bg-purple-500/20 hover:bg-purple-500/30'
-                                                        : 'bg-gray-500/20 cursor-not-allowed'
+                                                    ? 'bg-purple-500/20 hover:bg-purple-500/30'
+                                                    : 'bg-gray-500/20 cursor-not-allowed'
                                                     }`}
                                                 disabled={subtopic.mastery_level < 0.4}
                                             >

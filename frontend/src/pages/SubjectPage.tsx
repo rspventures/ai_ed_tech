@@ -238,6 +238,14 @@ export default function SubjectPage() {
                                 <span>{topicsWithStatus.length} Adventures</span>
                             </div>
                             <button
+                                onClick={() => navigate(`/quick-review?subject=${subject.id}`)}
+                                className="px-4 py-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg
+                                           text-yellow-300 hover:bg-yellow-500/30 transition-colors flex items-center gap-2 text-sm font-medium"
+                            >
+                                <Star className="w-5 h-5" />
+                                My Stars
+                            </button>
+                            <button
                                 onClick={() => navigate(`/exams/${slug}`)}
                                 className="btn-primary flex items-center gap-2"
                             >

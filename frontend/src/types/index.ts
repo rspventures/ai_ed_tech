@@ -245,6 +245,70 @@ export interface LessonProgress {
 }
 
 // ============================================================================
+// Lesson 2.0 Types (Interactive Module Playlist)
+// ============================================================================
+
+export type LessonModuleType = 'hook' | 'text' | 'flashcard' | 'fun_fact' | 'quiz_single' | 'activity' | 'image_placeholder'
+
+export interface LessonModuleBase {
+    type: LessonModuleType
+}
+
+export interface HookModule extends LessonModuleBase {
+    type: 'hook'
+    content: string
+    emoji?: string
+}
+
+export interface TextModule extends LessonModuleBase {
+    type: 'text'
+    content: string
+}
+
+export interface FlashcardModule extends LessonModuleBase {
+    type: 'flashcard'
+    front: string
+    back: string
+}
+
+export interface FunFactModule extends LessonModuleBase {
+    type: 'fun_fact'
+    content: string
+    source?: string
+}
+
+export interface QuizSingleModule extends LessonModuleBase {
+    type: 'quiz_single'
+    question: string
+    options: string[]
+    correct_answer: string
+}
+
+export interface ActivityModule extends LessonModuleBase {
+    type: 'activity'
+    content: string
+    activity_type?: 'solo' | 'social' | 'creative'
+}
+
+export type LessonModule = HookModule | TextModule | FlashcardModule | FunFactModule | QuizSingleModule | ActivityModule
+
+export interface LessonV2Content {
+    title: string
+    modules: LessonModule[]
+    estimated_duration_minutes?: number
+}
+
+export interface LessonV2 {
+    id: string
+    subtopic_id: string
+    grade_level: number
+    content: LessonV2Content
+    generated_by: string
+    content_version: number
+    is_completed?: boolean
+}
+
+// ============================================================================
 // Chat Types (Interactive AI Tutor)
 // ============================================================================
 
@@ -343,3 +407,69 @@ export interface ChildDetail {
     recent_activity: ActivityItem[]
     ai_insights?: string
 }
+
+// ============================================================================
+// Flashcard Types
+// ============================================================================
+
+export type FlashcardDifficulty = 'easy' | 'medium' | 'hard'
+
+export interface FlashcardItem {
+    front: string
+    back: string
+    difficulty?: FlashcardDifficulty
+}
+
+export interface FlashcardDeck {
+    id: string
+    subtopic_id: string
+    grade_level: number
+    title: string
+    description?: string
+    cards: FlashcardItem[]
+    card_count: number
+    generated_by: string
+    cards_reviewed?: number
+    cards_mastered?: number
+    mastery_percentage?: number
+}
+
+export interface FlashcardDeckListItem {
+    id: string
+    subtopic_id: string
+    subtopic_name: string
+    title: string
+    card_count: number
+    mastery_percentage?: number
+}
+
+// ============================================================================
+// Favorites Types (Quick Review)
+// ============================================================================
+
+export interface FavoriteModule {
+    id: string
+    lesson_id: string
+    module_index: number
+    module_type: string
+    module_content: Record<string, any>
+    subtopic_id: string
+    subtopic_name?: string
+    topic_id: string
+    topic_name?: string
+    subject_id: string
+    subject_name?: string
+    created_at: string
+}
+
+export interface FavoriteListResponse {
+    favorites: FavoriteModule[]
+    total_count: number
+}
+
+export interface FavoriteCreate {
+    lesson_id: string
+    module_index: number
+}
+
+

@@ -199,3 +199,39 @@ export interface AssessmentResult {
         is_correct: boolean;
     }[];
 }
+
+// ============================================================================
+// Flashcard Types
+// ============================================================================
+
+export type FlashcardDifficulty = 'easy' | 'medium' | 'hard';
+
+export interface FlashcardItem {
+    front: string;
+    back: string;
+    difficulty?: FlashcardDifficulty;
+}
+
+export interface FlashcardDeck {
+    id: string;
+    subtopic_id: string;
+    grade_level: number;
+    title: string;
+    description?: string;
+    cards: FlashcardItem[];
+    card_count: number;
+    generated_by: string;
+    cards_reviewed?: number;
+    cards_mastered?: number;
+    mastery_percentage?: number;
+}
+
+export interface FlashcardDeckListItem {
+    id: string;
+    subtopic_id: string;
+    subtopic_name: string;
+    title: string;
+    card_count: number;
+    mastery_percentage?: number;
+}
+
