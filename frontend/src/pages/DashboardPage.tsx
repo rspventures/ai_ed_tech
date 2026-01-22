@@ -253,6 +253,18 @@ export default function DashboardPage() {
                                 <span className="hidden sm:inline text-sm font-medium">Visuals</span>
                             </button>
 
+                            {/* Quick Review (Favorites) Link */}
+                            <button
+                                onClick={() => navigate('/quick-review')}
+                                className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 
+                                           border border-yellow-500/30 rounded-lg text-yellow-300 hover:text-white 
+                                           hover:from-yellow-500/30 hover:to-orange-500/30 transition-all"
+                                title="Quick Review - Your Starred Items"
+                            >
+                                <Star className="w-4 h-4" />
+                                <span className="hidden sm:inline text-sm font-medium">Review</span>
+                            </button>
+
                             {/* Parent Dashboard Link */}
                             <button
                                 onClick={() => navigate('/parent')}

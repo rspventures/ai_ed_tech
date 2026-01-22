@@ -72,5 +72,31 @@ export const documentService = {
             timeout: 60000, // 60 seconds for AI chat responses
         });
         return response.data;
+    },
+
+    /**
+     * Generate quiz from document
+     */
+    async generateQuiz(docId: string, numQuestions: number = 5, gradeLevel: number = 5): Promise<QuizResponse> {
+        const response = await api.post<QuizResponse>(`/documents/${docId}/quiz`, {
+            num_questions: numQuestions,
+            grade: gradeLevel,
+        }, {
+            timeout: 90000, // 90 seconds for quiz generation
+        });
+        return response.data;
     }
 };
+
+export interface QuizQuestion {
+    question: string;
+    options: string[];
+    correct_answer: string;
+    explanation: string;
+}
+
+export interface QuizResponse {
+    questions: QuizQuestion[];
+    document_id: string;
+    total_questions: number;
+}

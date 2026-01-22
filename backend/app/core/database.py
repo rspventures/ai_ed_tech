@@ -71,6 +71,7 @@ async def run_sql_migrations() -> None:
     Scripts use IF NOT EXISTS patterns, making them safe to run multiple times.
     """
     import os
+    import re
     from pathlib import Path
     from sqlalchemy import text
     
@@ -83,7 +84,56 @@ async def run_sql_migrations() -> None:
         "07_contextual_retrieval.sql",
         "08_chat_memory.sql",
         "09_document_quiz_history.sql",
+        "12_favorites.sql",
     ]
+    
+    def split_sql_statements(sql_content: str) -> list:
+        """
+        Split SQL into statements, respecting $$ and $tag$ quoted blocks.
+        This avoids splitting on semicolons inside function definitions.
+        """
+        statements = []
+        current = []
+        in_dollar_quote = False
+        dollar_tag = None
+        
+        # Split by lines to process
+        lines = sql_content.split('\n')
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Skip empty lines and comments when not in a statement
+            if not current and (not stripped or stripped.startswith('--')):
+                continue
+            
+            current.append(line)
+            
+            # Check for dollar quote start/end
+            dollar_matches = re.findall(r'\$(\w*)\$', line)
+            for tag in dollar_matches:
+                full_tag = f'${tag}$'
+                if not in_dollar_quote:
+                    in_dollar_quote = True
+                    dollar_tag = full_tag
+                elif full_tag == dollar_tag:
+                    in_dollar_quote = False
+                    dollar_tag = None
+            
+            # If not in dollar quote and line ends with semicolon, end statement
+            if not in_dollar_quote and stripped.endswith(';'):
+                stmt = '\n'.join(current).strip()
+                if stmt and not stmt.startswith('--'):
+                    statements.append(stmt)
+                current = []
+        
+        # Add any remaining statement
+        if current:
+            stmt = '\n'.join(current).strip()
+            if stmt and not stmt.startswith('--'):
+                statements.append(stmt)
+        
+        return statements
     
     async with engine.begin() as conn:
         for filename in migration_files:
@@ -91,13 +141,13 @@ async def run_sql_migrations() -> None:
             if filepath.exists():
                 try:
                     sql_content = filepath.read_text()
-                    # Execute each statement separately (split by semicolon)
-                    for statement in sql_content.split(";"):
-                        statement = statement.strip()
-                        if statement and not statement.startswith("--"):
+                    # Execute each statement separately (respecting $$ blocks)
+                    for statement in split_sql_statements(sql_content):
+                        if statement:
                             await conn.execute(text(statement))
                     print(f"[Migration] ✓ Executed {filename}")
                 except Exception as e:
                     print(f"[Migration] ⚠ Error in {filename}: {e}")
             else:
                 print(f"[Migration] ⚠ File not found: {filename}")
+

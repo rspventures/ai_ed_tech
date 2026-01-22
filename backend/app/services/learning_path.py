@@ -86,25 +86,25 @@ class LearningPathService:
         student_id: uuid.UUID,
         subtopic_id: uuid.UUID
     ) -> bool:
-        """Check if student has completed the lesson for a subtopic."""
-        # First find if a lesson exists for this subtopic
+        """Check if student has completed ANY lesson for a subtopic (V1 or V2)."""
+        # Find all lessons for this subtopic (could be V1 and V2)
         lesson_query = select(GeneratedLesson.id).where(
             GeneratedLesson.subtopic_id == subtopic_id
         )
         lesson_result = await self.db.execute(lesson_query)
-        lesson = lesson_result.scalar_one_or_none()
+        lesson_ids = lesson_result.scalars().all()
         
-        if not lesson:
+        if not lesson_ids:
             return False
         
-        # Check if student completed it
+        # Check if student completed any of them
         progress_query = select(StudentLessonProgress).where(
             StudentLessonProgress.student_id == student_id,
-            StudentLessonProgress.lesson_id == lesson,
+            StudentLessonProgress.lesson_id.in_(lesson_ids),
             StudentLessonProgress.completed_at.isnot(None)
         )
         progress_result = await self.db.execute(progress_query)
-        return progress_result.scalar_one_or_none() is not None
+        return progress_result.first() is not None
     
     async def get_next_action(
         self,

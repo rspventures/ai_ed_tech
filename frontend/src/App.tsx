@@ -9,6 +9,8 @@ import AssessmentPage from '@/pages/AssessmentPage'
 import ExamPage from '@/pages/ExamPage'
 import TestPage from '@/pages/TestPage'
 import StudyPage from '@/pages/StudyPage'
+import FlashcardsPage from '@/pages/FlashcardsPage'
+import QuickReviewPage from '@/pages/QuickReviewPage'
 import ParentDashboardPage from '@/pages/ParentDashboardPage'
 import SettingsPage from '@/pages/SettingsPage'
 import DocumentsPage from '@/pages/DocumentsPage'
@@ -83,6 +85,22 @@ function App() {
                         element={
                             <ProtectedRoute>
                                 <StudyPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/flashcards/:topicSlug"
+                        element={
+                            <ProtectedRoute>
+                                <FlashcardsPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/quick-review"
+                        element={
+                            <ProtectedRoute>
+                                <QuickReviewPage />
                             </ProtectedRoute>
                         }
                     />

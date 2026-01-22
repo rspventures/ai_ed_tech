@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated_at ON chat_sessions(updated
 CREATE TABLE IF NOT EXISTS chat_messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
-    role VARCHAR(50) NOT NULL, -- 'user', 'assistant', 'system'
+    role VARCHAR(50) NOT NULL,
     content TEXT NOT NULL,
     token_count INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at ASC);
 
--- Trigger to update updated_at on chat_sessions when new message is added
+-- Trigger function to update updated_at on chat_sessions when new message is added
 CREATE OR REPLACE FUNCTION update_chat_session_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
