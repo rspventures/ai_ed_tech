@@ -84,6 +84,8 @@ async def run_sql_migrations() -> None:
         "07_contextual_retrieval.sql",
         "08_chat_memory.sql",
         "09_document_quiz_history.sql",
+        "10_lesson_v2.sql",
+        "11_flashcards.sql",
         "12_favorites.sql",
     ]
     
