@@ -56,12 +56,21 @@ backend/app/ai/agents/
 ├── examiner.py       # Question generation
 ├── grader.py         # Answer evaluation
 ├── feedback.py       # Feedback generation
-├── lesson.py         # Lesson content generation
+├── lesson.py         # Lesson content generation (V1 text, V2 modules)
 ├── reviewer.py       # Spaced repetition
 ├── image_agent.py    # Image generation
 ├── entity_extractor.py # Entity extraction for Graph RAG
 └── ...
 ```
+
+### Lesson 2.0 Format (content_version=2):
+Lessons now support two formats:
+- **V1 (content_version=1)**: Traditional text sections
+- **V2 (content_version=2)**: Interactive module playlist with:
+  - Hooks, Text, Flashcards, Quizzes, Activities, Fun Facts, Examples, Summary
+  - Star/favorite any module for Quick Review
+  - Schema defined in `backend/app/schemas/lesson_modules.py`
+
 
 ### LangGraph Orchestration (Phase 7+):
 
@@ -228,17 +237,28 @@ migrations/
 Files ending in `.disabled` have already been applied. **DO NOT re-run them.**
 
 ### Fresh Setup (First Pull from GitHub):
-For **fresh setups**, migrations run **automatically** via `docker-entrypoint-initdb.d`:
-1. The `backend/migrations/` folder is mounted to PostgreSQL's init directory
-2. SQL files are executed **alphabetically** on first DB initialization
-3. Use numeric prefixes for ordering: `00_init.sql`, `01_users.sql`, `04_phase4.sql`
-4. Files with `.disabled` suffix are ignored by PostgreSQL
+Tables are created in TWO ways:
 
-> **Important**: This only runs when the DB volume is **empty** (first `docker-compose up`).
-> For **existing databases**, run migrations manually:
-> ```bash
-> docker exec -i ai_tutor_db psql -U postgres -d ai_tutor -f /docker-entrypoint-initdb.d/04_phase4_teacher_suite.sql
-> ```
+**1. SQLAlchemy Models (`init_db()`):**
+- Tables defined in `backend/app/models/` are auto-created by `Base.metadata.create_all()`
+- This runs at application startup
+
+**2. SQL Migrations (`run_sql_migrations()`):**
+- Additional DDL (ALTER TABLE, triggers, indexes) from `backend/migrations/`
+- Runs automatically at startup for these files:
+```python
+migration_files = [
+    "07_contextual_retrieval.sql",
+    "08_chat_memory.sql",
+    "09_document_quiz_history.sql",
+    "10_lesson_v2.sql",       # Adds content_version column
+    "11_flashcards.sql",      # Flashcard triggers
+    "12_favorites.sql",       # Student favorites indexes
+]
+```
+
+> **Important**: The migration runner in `database.py` handles `$$ ... $$` blocks for trigger functions.
+> For **existing databases**, migrations run automatically on restart.
 
 ### Migration Best Practices:
 ```sql
@@ -260,6 +280,9 @@ ALTER TABLE my_table ADD COLUMN new_column TEXT;
 - `gamification_profiles`, `achievements`, `student_achievements`
 - `schools`, `classes`, `class_enrollments` (Phase 4)
 - `assignments`, `assignment_submissions`, `class_announcements` (Phase 4)
+- `flashcard_decks`, `student_flashcard_progress` (Flashcards)
+- `student_favorites` (Quick Review Stars)
+- `chat_sessions`, `chat_messages` (Chat Memory)
 
 ---
 
@@ -540,4 +563,4 @@ git commit -m "Add .env to gitignore"
 
 ---
 
-*Last Updated: December 21, 2025*
+*Last Updated: January 22, 2026*
