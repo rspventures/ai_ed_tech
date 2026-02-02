@@ -132,6 +132,17 @@ export default function HomeScreen() {
                             <Text style={styles.toolDesc}>Upload & chat with PDFs</Text>
                         </View>
                     </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[styles.toolCard, { marginTop: 12 }]}
+                        onPress={() => router.push('/voice')}
+                    >
+                        <Text style={styles.toolIcon}>🦉</Text>
+                        <View>
+                            <Text style={styles.toolTitle}>Voice Tutor</Text>
+                            <Text style={styles.toolDesc}>Speak with Professor Sage</Text>
+                        </View>
+                    </TouchableOpacity>
                 </View>
 
                 {/* Subjects Section */}

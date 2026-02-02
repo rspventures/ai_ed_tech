@@ -254,6 +254,8 @@ services:
       - CORS_ORIGINS_STR=*
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - COHERE_API_KEY=${COHERE_API_KEY}
+      - SARVAM_API_KEY=${SARVAM_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       # OpenTelemetry Configuration
       - OTEL_SERVICE_NAME=ai-tutor-backend
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317

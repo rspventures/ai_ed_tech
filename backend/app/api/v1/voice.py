@@ -1,34 +1,35 @@
 """
-AI Tutor Platform - Voice API Router
+AI Tutor Platform - Multilingual Voice API Router
 WebSocket endpoint for real-time voice conversations with Professor Sage
-using OpenAI's Realtime API (gpt-4o-realtime-preview)
+supporting 12 Indian languages via ElevenLabs
 
 SAFETY: Voice transcripts are validated through the safety pipeline
 OBSERVABILITY: All voice sessions are traced via Langfuse
 """
 import asyncio
+import base64
 import json
 import logging
+import io
 from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query
-import websockets
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 
 from app.core.config import settings
 from app.api.deps import get_current_user_ws
 from app.ai.core.safety_pipeline import get_safety_pipeline, SafetyAction
 from app.ai.core.observability import get_observer
+from app.ai.core.llm import get_llm_client
+from app.services.elevenlabs_tts import get_elevenlabs_service, ElevenLabsTTSError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voice", tags=["Voice"])
 
-# OpenAI Realtime API configuration
-OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime"
-OPENAI_MODEL = "gpt-4o-realtime-preview"
-
-# Professor Sage voice system prompt
+# Professor Sage voice system prompt (English responses only)
 VOICE_SYSTEM_PROMPT = """You are Professor Sage 🦉, a warm and encouraging AI tutor for school students (grades 1-7).
+
+IMPORTANT: Always respond in ENGLISH only, even if the student speaks in Hindi, Tamil, or other languages.
 
 YOUR VOICE PERSONALITY:
 - Speak in a friendly, patient, and enthusiastic tone
@@ -44,52 +45,11 @@ YOUR JOB:
 5. Encourage thinking ("What do you think happens if...?")
 
 RULES:
+- ALWAYS respond in English only
 - Never be condescending
 - If you don't know something, say "That's a great question! Let me think..."
 - Gently redirect off-topic questions back to learning
 """
-
-
-async def create_openai_connection() -> websockets.WebSocketClientProtocol:
-    """Create authenticated connection to OpenAI Realtime API."""
-    url = f"{OPENAI_REALTIME_URL}?model={OPENAI_MODEL}"
-    headers = {
-        "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-        "OpenAI-Beta": "realtime=v1",
-    }
-    
-    # Use additional_headers for websockets v10+ (was extra_headers in older versions)
-    connection = await websockets.connect(url, additional_headers=headers)
-    logger.info("Connected to OpenAI Realtime API")
-    return connection
-
-
-async def configure_session(openai_ws: websockets.WebSocketClientProtocol):
-    """Configure the OpenAI Realtime session with tutor settings."""
-    session_config = {
-        "type": "session.update",
-        "session": {
-            "modalities": ["audio", "text"],
-            "instructions": VOICE_SYSTEM_PROMPT,
-            "voice": "alloy",  # Friendly voice
-            "input_audio_format": "pcm16",
-            "output_audio_format": "pcm16",
-            "input_audio_transcription": {
-                "model": "whisper-1"
-            },
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": 0.5,
-                "prefix_padding_ms": 300,
-                "silence_duration_ms": 500
-            },
-            "temperature": 0.7,
-            "max_response_output_tokens": 500,
-        }
-    }
-    
-    await openai_ws.send(json.dumps(session_config))
-    logger.info("Configured OpenAI Realtime session")
 
 
 @router.websocket("/ws")
@@ -98,18 +58,15 @@ async def voice_websocket(
     token: Optional[str] = Query(None)
 ):
     """
-    WebSocket endpoint for voice conversations.
+    Multilingual WebSocket endpoint for voice conversations.
     
-    Relay audio between frontend and OpenAI Realtime API.
-    
-    Protocol:
-    - Client sends: {"type": "audio", "data": "<base64 PCM16>"} or {"type": "text", "text": "..."}
-    - Server sends: {"type": "audio", "data": "<base64 PCM16>"} or {"type": "transcript", "text": "..."}
-    
-    SAFETY: Text inputs and transcripts are validated through safety pipeline
-    OBSERVABILITY: Session is traced via Langfuse
+    Pipeline:
+    1. Sarvam Saaras: Speech → English (auto-detect language)
+    2. Safety Pipeline: Validate input
+    3. LLM (GPT-4o): Generate response in English
+    4. Safety Pipeline: Validate output
+    5. OpenAI TTS: English Text → Speech
     """
-    # Authenticate user
     user = await get_current_user_ws(websocket, token)
     if not user:
         await websocket.close(code=4001, reason="Unauthorized")
@@ -118,242 +75,347 @@ async def voice_websocket(
     await websocket.accept()
     logger.info(f"Voice WebSocket connected for user {user.id}")
     
-    # === OBSERVABILITY: Create trace for voice session ===
     observer = get_observer()
     trace = observer.create_trace(
-        name="voice_session",
+        name="voice_session_elevenlabs",
         user_id=str(user.id),
-        metadata={"session_type": "realtime_voice"}
+        metadata={"session_type": "elevenlabs_voice", "languages": "12_indian"}
     )
     
-    # === SAFETY: Initialize safety pipeline ===
     safety_pipeline = get_safety_pipeline()
     
-    openai_ws = None
+    detected_language = "en"  # Default to English
+    audio_chunks: list[bytes] = []
     
     try:
-        # Connect to OpenAI Realtime API
-        conn_span = observer.create_span(trace, "openai_connection")
-        openai_ws = await create_openai_connection()
-        await configure_session(openai_ws)
-        if conn_span:
-            conn_span.end(output={"connected": True})
-        
-        # Send initial greeting
         await websocket.send_json({
             "type": "status",
-            "message": "Connected to Professor Sage! Start speaking..."
+            "message": "Connected to Professor Sage! 🦉 Speak in any Indian language..."
         })
         
-        async def forward_to_openai():
-            """Forward client audio/text to OpenAI."""
+        async for message_text in websocket.iter_text():
             try:
-                async for message in websocket.iter_json():
-                    msg_type = message.get("type")
-                    
-                    if msg_type == "audio":
-                        # Forward audio chunk to OpenAI (no safety check on raw audio)
-                        audio_event = {
-                            "type": "input_audio_buffer.append",
-                            "audio": message.get("data")
-                        }
-                        await openai_ws.send(json.dumps(audio_event))
-                        
-                    elif msg_type == "commit":
-                        # Signal end of speech
-                        await openai_ws.send(json.dumps({
-                            "type": "input_audio_buffer.commit"
-                        }))
-                        
-                    elif msg_type == "text":
-                        # === SAFETY: Validate text input ===
-                        text_input = message.get("text", "")
-                        
-                        safety_span = observer.create_span(trace, "safety_text_input")
-                        safety_result = await safety_pipeline.validate_input(
-                            text=text_input,
-                            grade=5,  # Default grade for voice
-                            student_id=str(user.id)
-                        )
-                        if safety_span:
-                            safety_span.end(output={
-                                "action": safety_result.action.value,
-                                "pii_detected": safety_result.pii_detected
-                            })
-                        
-                        if safety_result.action == SafetyAction.BLOCK:
-                            logger.warning(f"Voice text blocked for user {user.id}")
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": "I can't help with that request. Let's focus on learning!"
-                            })
-                            continue
-                        
-                        # Use sanitized text
-                        safe_text = safety_result.processed_text
-                        
-                        # Send text message instead of audio
-                        text_event = {
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "message",
-                                "role": "user",
-                                "content": [{
-                                    "type": "input_text",
-                                    "text": safe_text
-                                }]
-                            }
-                        }
-                        await openai_ws.send(json.dumps(text_event))
-                        await openai_ws.send(json.dumps({
-                            "type": "response.create"
-                        }))
-                        
-            except WebSocketDisconnect:
-                logger.info("Client disconnected")
-            except Exception as e:
-                logger.error(f"Error forwarding to OpenAI: {e}")
-        
-        async def forward_to_client():
-            """Forward OpenAI responses to client."""
-            # Buffer for accumulating response transcript for validation
-            response_transcript_buffer = []
+                message = json.loads(message_text)
+            except json.JSONDecodeError:
+                continue
             
-            try:
-                async for message in openai_ws:
-                    event = json.loads(message)
-                    event_type = event.get("type")
+            msg_type = message.get("type")
+            
+            if msg_type == "audio":
+                audio_data = message.get("data", "")
+                if audio_data:
+                    try:
+                        chunk = base64.b64decode(audio_data)
+                        audio_chunks.append(chunk)
+                    except Exception as e:
+                        logger.error(f"Failed to decode audio chunk: {e}")
+                        
+            elif msg_type == "commit" or msg_type == "end_audio":
+                if not audio_chunks:
+                    continue
+                
+                # Immediately tell frontend to stop recording
+                await websocket.send_json({
+                    "type": "processing",
+                    "message": "Processing your message..."
+                })
+                
+                combined_audio = b''.join(audio_chunks)
+                audio_chunks.clear()
+                
+                process_span = observer.create_span(trace, "process_voice_turn")
+                
+                try:
+                    # === STEP 1: ElevenLabs STT (Speech → Text) ===
+                    stt_span = observer.create_span(trace, "elevenlabs_stt")
+                    elevenlabs = get_elevenlabs_service()
                     
-                    if event_type == "response.audio.delta":
-                        # Forward audio chunk to client immediately
-                        # (can't validate raw audio bytes)
-                        await websocket.send_json({
-                            "type": "audio",
-                            "data": event.get("delta")
-                        })
+                    try:
+                        stt_result = await elevenlabs.speech_to_text(combined_audio)
+                        user_transcript = stt_result["text"]
+                        detected_language = stt_result["language_code"]
                         
-                    elif event_type == "response.audio_transcript.delta":
-                        # Accumulate transcript deltas for validation
-                        delta = event.get("delta", "")
-                        response_transcript_buffer.append(delta)
-                        # Note: We don't send partial transcripts anymore
-                        # Full validated transcript sent on response.done
-                        
-                    elif event_type == "conversation.item.input_audio_transcription.completed":
-                        # User's speech transcription - validate input
-                        transcript = event.get("transcript", "")
-                        
-                        # Create observability span
-                        user_span = observer.create_span(trace, "user_transcript")
-                        
-                        # === SAFETY: Validate user transcript ===
-                        safety_result = await safety_pipeline.validate_input(
-                            text=transcript,
-                            grade=5,
-                            student_id=str(user.id)
-                        )
-                        
-                        if user_span:
-                            user_span.end(output={
-                                "text": transcript[:100],
-                                "action": safety_result.action.value
+                        if stt_span:
+                            stt_span.end(output={
+                                "language": detected_language,
+                                "transcript_length": len(user_transcript)
                             })
                         
-                        if safety_result.action == SafetyAction.BLOCK:
-                            logger.warning(f"User voice transcript blocked: {user.id}")
-                            await websocket.send_json({
-                                "type": "transcript",
-                                "text": "[Message filtered]",
-                                "role": "user"
-                            })
-                        else:
-                            await websocket.send_json({
-                                "type": "transcript",
-                                "text": safety_result.processed_text,
-                                "role": "user"
-                            })
-                        
-                    elif event_type == "response.done":
-                        # === SAFETY: Validate complete AI response transcript ===
-                        full_transcript = "".join(response_transcript_buffer)
-                        
-                        if full_transcript:
-                            output_span = observer.create_span(trace, "safety_output_validation")
-                            
-                            output_result = await safety_pipeline.validate_output(
-                                output=full_transcript,
-                                original_question="voice conversation",
-                                grade=5
-                            )
-                            
-                            if output_span:
-                                output_span.end(output={
-                                    "is_safe": output_result.is_safe,
-                                    "original_length": len(full_transcript),
-                                    "validated_length": len(output_result.validated_output)
-                                })
-                            
-                            # Send validated transcript to client
-                            await websocket.send_json({
-                                "type": "transcript",
-                                "text": output_result.validated_output,
-                                "role": "assistant"
-                            })
-                        
-                        # Clear buffer for next response
-                        response_transcript_buffer.clear()
-                        
-                        # Signal response complete
-                        await websocket.send_json({
-                            "type": "response_complete"
-                        })
-                        
-                    elif event_type == "error":
-                        logger.error(f"OpenAI error: {event}")
-                        error_span = observer.create_span(trace, "openai_error")
-                        if error_span:
-                            error_span.end(output={"error": str(event)})
+                    except ElevenLabsTTSError as e:
+                        logger.error(f"ElevenLabs STT failed: {e}")
+                        print(f"❌ [ElevenLabs] STT Failed: {e}")
+                        if stt_span:
+                            stt_span.end(output={"error": str(e)})
                         await websocket.send_json({
                             "type": "error",
-                            "message": event.get("error", {}).get("message", "Unknown error")
+                            "message": "Couldn't understand the audio. Please try again."
+                        })
+                        continue
+                    
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "text": user_transcript,
+                        "role": "user",
+                        "language": detected_language
+                    })
+                    
+                    # === STEP 2: Safety Input Validation ===
+                    safety_span = observer.create_span(trace, "safety_input")
+                    safety_result = await safety_pipeline.validate_input(
+                        text=user_transcript,
+                        grade=5,
+                        student_id=str(user.id)
+                    )
+                    
+                    if safety_result.action == SafetyAction.BLOCK:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "I can't help with that request. Let's focus on learning!"
+                        })
+                        continue
+                        
+                    if safety_span:
+                        safety_span.end(output={"safe": True})
+                    
+                    safe_input = safety_result.processed_text
+                    
+                    # === STEP 3: LLM Response (in English) ===
+                    llm_span = observer.create_span(trace, "llm_response")
+                    try:
+                        llm_client = get_llm_client()
+                        llm_result = await llm_client.generate(
+                            prompt=safe_input,
+                            system_prompt=VOICE_SYSTEM_PROMPT,
+                            agent_name="voice_tutor"
+                        )
+                        llm_response = llm_result.content
+                        
+                        if llm_span:
+                            llm_span.end(output={
+                                "response_length": len(llm_response),
+                                "tokens": llm_result.tokens_total
+                            })
+                            
+                    except Exception as e:
+                        logger.error(f"LLM response failed: {e}")
+                        await websocket.send_json({"type": "error", "message": "Thinking failed."})
+                        continue
+                    
+                    # === STEP 4: Safety Output Validation ===
+                    output_result = await safety_pipeline.validate_output(
+                        output=llm_response,
+                        original_question=safe_input,
+                        grade=5
+                    )
+                    safe_output = output_result.validated_output
+                    
+                    # Send English transcript to client
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "text": safe_output,
+                        "role": "assistant",
+                        "language": "en-IN"  # Always English now
+                    })
+                    
+                    # === STEP 5: ElevenLabs TTS (English Text → Speech) ===
+                    tts_span = observer.create_span(trace, "elevenlabs_tts")
+                    elevenlabs_tts = get_elevenlabs_service()
+                    try:
+                        response_audio = await elevenlabs_tts.text_to_speech(
+                            text=safe_output,
+                            output_format="pcm_24000"  # PCM at 24kHz
+                        )
+                        
+                        if tts_span:
+                            tts_span.end(output={
+                                "audio_bytes": len(response_audio),
+                                "voice": settings.ELEVENLABS_VOICE
+                            })
+                        
+                        # Send audio to client
+                        audio_base64 = base64.b64encode(response_audio).decode('utf-8')
+                        await websocket.send_json({
+                            "type": "audio",
+                            "data": audio_base64,
+                            "format": "pcm",
+                            "sample_rate": 24000  # ElevenLabs PCM at 24kHz
                         })
                         
-            except websockets.exceptions.ConnectionClosed:
-                logger.info("OpenAI connection closed")
-            except Exception as e:
-                logger.error(f"Error forwarding to client: {e}")
-        
-        # Run both forwarding tasks concurrently
-        await asyncio.gather(
-            forward_to_openai(),
-            forward_to_client()
-        )
+                    except ElevenLabsTTSError as e:
+                        logger.error(f"ElevenLabs TTS failed: {e}")
+                        if tts_span:
+                            tts_span.end(output={"error": str(e)})
+                        # Still send transcript even if TTS fails
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Audio unavailable, see transcript above."
+                        })
+                    
+                    # Signal response complete
+                    await websocket.send_json({
+                        "type": "response_complete"
+                    })
+                    
+                    if process_span:
+                        process_span.end(output={
+                            "detected_language": detected_language,
+                            "success": True
+                        })
+                        
+                except Exception as e:
+                    logger.error(f"Voice turn processing error: {e}")
+                    if process_span:
+                        process_span.end(output={"error": str(e)})
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Something went wrong. Please try again."
+                    })
+                    
+            elif msg_type == "text":
+                # Handle text input (typed message)
+                text_input = message.get("text", "").strip()
+                if not text_input:
+                    continue
+                
+                # Create processing span
+                text_span = observer.create_span(trace, "process_text_input")
+                
+                try:
+                    # === STEP 2: Safety Input Validation ===
+                    safety_result = await safety_pipeline.validate_input(
+                        text=text_input,
+                        grade=5,
+                        student_id=str(user.id)
+                    )
+                    
+                    if safety_result.action == SafetyAction.BLOCK:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "I can't help with that request. Let's focus on learning!"
+                        })
+                        continue
+                    
+                    safe_input = safety_result.processed_text
+                    
+                    # Send user transcript
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "text": safe_input,
+                        "role": "user",
+                        "language": "en-IN"  # Text input assumed English
+                    })
+                    
+                    # === STEP 3: LLM Response ===
+                    llm_client = get_llm_client()
+                    llm_result = await llm_client.generate(
+                        prompt=safe_input,
+                        system_prompt=VOICE_SYSTEM_PROMPT,
+                        agent_name="voice_tutor"
+                    )
+                    llm_response = llm_result.content
+                    
+                    # === STEP 4: Safety Output Validation ===
+                    output_result = await safety_pipeline.validate_output(
+                        output=llm_response,
+                        original_question=safe_input,
+                        grade=5
+                    )
+                    
+                    safe_output = output_result.validated_output
+                    
+                    # Send assistant transcript
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "text": safe_output,
+                        "role": "assistant",
+                        "language": "en-IN"
+                    })
+                    
+                    # === STEP 6: TTS for text response (in English) ===
+                    try:
+                        response_audio = await sarvam.text_to_speech(
+                            text=safe_output,
+                            language_code="en-IN"
+                        )
+                        
+                        audio_base64 = base64.b64encode(response_audio).decode('utf-8')
+                        await websocket.send_json({
+                            "type": "audio",
+                            "data": audio_base64,
+                            "format": "wav",
+                            "sample_rate": settings.SARVAM_TTS_SAMPLE_RATE
+                        })
+                        
+                    except SarvamAPIError:
+                        pass  # TTS failure for text mode is okay
+                    
+                    await websocket.send_json({
+                        "type": "response_complete"
+                    })
+                    
+                    if text_span:
+                        text_span.end(output={"success": True})
+                        
+                except Exception as e:
+                    logger.error(f"Text input processing error: {e}")
+                    if text_span:
+                        text_span.end(output={"error": str(e)})
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Something went wrong. Please try again."
+                    })
         
         if trace:
-            trace.update(output={"success": True})
-
-        
+            trace.update(output={"success": True, "final_language": detected_language})
+            
+    except WebSocketDisconnect:
+        logger.info(f"Voice WebSocket disconnected for user {user.id}")
     except Exception as e:
         logger.error(f"Voice WebSocket error: {e}")
-        trace.update(output={"error": str(e)})
-        await websocket.send_json({
-            "type": "error",
-            "message": "Failed to connect to voice service"
-        })
+        if trace:
+            trace.update(output={"error": str(e)})
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": "Connection error. Please reconnect."
+            })
+        except:
+            pass
     finally:
-        if openai_ws:
-            await openai_ws.close()
         logger.info(f"Voice WebSocket closed for user {user.id}")
 
 
 @router.get("/health")
 async def voice_health():
     """Check if voice service is available."""
-    if not settings.OPENAI_API_KEY:
-        return {"status": "unavailable", "reason": "OpenAI API key not configured"}
+    elevenlabs_configured = bool(settings.ELEVENLABS_API_KEY)
+    
+    if not elevenlabs_configured:
+        return {
+            "status": "unavailable",
+            "reason": "ElevenLabs API key not configured"
+        }
     
     return {
         "status": "available",
-        "model": OPENAI_MODEL,
-        "features": ["speech-to-speech", "transcription", "interruption"]
+        "provider": "elevenlabs",
+        "models": {
+            "stt": "scribe_v1",
+            "tts": f"eleven_{settings.ELEVENLABS_MODEL}_v2_5"
+        },
+        "voice": settings.ELEVENLABS_VOICE,
+        "input_languages": [
+            "hi", "bn", "ta", "te", "gu", "kn",
+            "ml", "mr", "pa", "as", "ne", "ur", "en"
+        ],
+        "output_language": "en",
+        "features": [
+            "speech-to-text",
+            "auto-language-detection", 
+            "high-quality-tts",
+            "12-indian-languages"
+        ]
     }
+
+
+

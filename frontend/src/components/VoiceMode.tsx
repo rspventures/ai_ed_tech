@@ -1,11 +1,14 @@
 /**
- * VoiceMode Component - Real-time voice conversation with Professor Sage
+ * VoiceMode Component - Real-time multilingual voice conversation with Professor Sage
  * 
  * Uses Web Audio API to capture microphone input and play AI responses.
- * Connects to backend WebSocket which relays to OpenAI Realtime API.
+ * Connects to backend WebSocket which uses Sarvam AI for:
+ * - Speech-to-Text (22 Indian languages)
+ * - Translation
+ * - Text-to-Speech
  */
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Mic, MicOff, Phone, PhoneOff, Volume2 } from 'lucide-react'
+import { Mic, MicOff, Phone, PhoneOff, Volume2, Globe } from 'lucide-react'
 
 interface VoiceModeProps {
     onClose?: () => void
@@ -14,6 +17,7 @@ interface VoiceModeProps {
 interface Transcript {
     role: 'user' | 'assistant'
     text: string
+    language?: string
 }
 
 export function VoiceMode({ onClose }: VoiceModeProps) {
@@ -23,6 +27,7 @@ export function VoiceMode({ onClose }: VoiceModeProps) {
     const [transcripts, setTranscripts] = useState<Transcript[]>([])
     const [error, setError] = useState<string | null>(null)
     const [audioLevel, setAudioLevel] = useState(0)
+    const [detectedLanguage, setDetectedLanguage] = useState<string>('en-IN')
 
     const wsRef = useRef<WebSocket | null>(null)
     const audioContextRef = useRef<AudioContext | null>(null)
@@ -30,6 +35,13 @@ export function VoiceMode({ onClose }: VoiceModeProps) {
     const processorRef = useRef<ScriptProcessorNode | null>(null)
     const audioQueueRef = useRef<Float32Array[]>([])
     const isPlayingRef = useRef(false)
+    const vadTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const isUserSpeakingRef = useRef(false)
+    const isSpeakingRef = useRef(false) // Track if AI is speaking
+
+    // VAD Constants
+    const VAD_THRESHOLD = 0.02
+    const SILENCE_DURATION = 1500 // 1.5s silence triggers response
 
     // Connect to voice WebSocket
     const connect = useCallback(async () => {
@@ -54,7 +66,7 @@ export function VoiceMode({ onClose }: VoiceModeProps) {
             })
             mediaStreamRef.current = stream
 
-            // Create audio context
+            // Create audio context (24kHz for ElevenLabs TTS output)
             audioContextRef.current = new AudioContext({ sampleRate: 24000 })
 
             // Connect to WebSocket
@@ -98,25 +110,39 @@ export function VoiceMode({ onClose }: VoiceModeProps) {
                 audioQueueRef.current.push(audioData)
                 playQueuedAudio()
                 setIsSpeaking(true)
+                isSpeakingRef.current = true // Update ref for audio processor
                 break
 
             case 'transcript':
+                // Update detected language if provided
+                if (data.language) {
+                    setDetectedLanguage(data.language)
+                }
                 setTranscripts(prev => {
                     const last = prev[prev.length - 1]
                     if (last && last.role === data.role) {
                         // Append to existing transcript
                         return [
                             ...prev.slice(0, -1),
-                            { ...last, text: last.text + data.text }
+                            { ...last, text: last.text + data.text, language: data.language }
                         ]
                     }
                     // New transcript
-                    return [...prev, { role: data.role, text: data.text }]
+                    return [...prev, { role: data.role, text: data.text, language: data.language }]
                 })
+                break
+
+            case 'processing':
+                // Backend is processing - stop recording immediately
+                isSpeakingRef.current = true
+                setIsSpeaking(true)
+                console.log('Processing: stopping audio capture')
                 break
 
             case 'response_complete':
                 setIsSpeaking(false)
+                isSpeakingRef.current = false // Update ref for audio processor
+                console.log('Response complete: resuming audio capture')
                 break
 
             case 'error':
@@ -141,6 +167,12 @@ export function VoiceMode({ onClose }: VoiceModeProps) {
         processor.onaudioprocess = (e) => {
             if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
 
+            // Don't capture/send audio while AI is speaking
+            if (isSpeakingRef.current) {
+                setAudioLevel(0)
+                return
+            }
+
             const inputData = e.inputBuffer.getChannelData(0)
 
             // Calculate audio level for visualization
@@ -154,6 +186,28 @@ export function VoiceMode({ onClose }: VoiceModeProps) {
             // Convert to PCM16 and send
             const pcm16 = float32ToPCM16(inputData)
             const base64 = arrayBufferToBase64(pcm16.buffer)
+
+            // VAD Logic to detect end of speech
+            if (rms > VAD_THRESHOLD) {
+                // Speech detected
+                isUserSpeakingRef.current = true
+
+                // Clear existing silence timer
+                if (vadTimeoutRef.current) {
+                    clearTimeout(vadTimeoutRef.current)
+                    vadTimeoutRef.current = null
+                }
+            } else if (isUserSpeakingRef.current && !vadTimeoutRef.current) {
+                // Silence detected after speech - start timer
+                vadTimeoutRef.current = setTimeout(() => {
+                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                        console.log('VAD: Silence detected, sending commit')
+                        wsRef.current.send(JSON.stringify({ type: 'commit' }))
+                        isUserSpeakingRef.current = false
+                        vadTimeoutRef.current = null
+                    }
+                }, SILENCE_DURATION)
+            }
 
             wsRef.current.send(JSON.stringify({
                 type: 'audio',
@@ -185,6 +239,7 @@ export function VoiceMode({ onClose }: VoiceModeProps) {
 
         while (audioQueueRef.current.length > 0) {
             const audioData = audioQueueRef.current.shift()!
+            // Use 24kHz sample rate for ElevenLabs TTS output
             const buffer = audioContextRef.current.createBuffer(1, audioData.length, 24000)
             buffer.getChannelData(0).set(audioData)
 
@@ -252,9 +307,17 @@ export function VoiceMode({ onClose }: VoiceModeProps) {
                         )}
                     </div>
                     <h2 className="text-2xl font-bold text-white">Professor Sage</h2>
-                    <p className="text-purple-300 text-sm">
-                        {isConnected ? 'Listening...' : 'Voice Tutor'}
-                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                        <p className="text-purple-300 text-sm">
+                            {isConnected ? 'Listening...' : 'Voice Tutor'}
+                        </p>
+                        {isConnected && detectedLanguage !== 'en-IN' && (
+                            <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-600/30 rounded-full text-xs text-purple-200">
+                                <Globe className="w-3 h-3" />
+                                {getLanguageName(detectedLanguage)}
+                            </span>
+                        )}
+                    </div>
                 </div>
 
                 {/* Audio Visualizer */}
@@ -363,7 +426,7 @@ export function VoiceMode({ onClose }: VoiceModeProps) {
                 {!isConnected && (
                     <p className="text-center text-purple-300/70 text-xs mt-6">
                         Tap the green button to start a voice conversation.<br />
-                        Make sure to allow microphone access.
+                        Speak in any Indian language - auto-detected! 🇮🇳
                     </p>
                 )}
             </div>
@@ -402,6 +465,35 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
         binary += String.fromCharCode(bytes[i])
     }
     return btoa(binary)
+}
+
+function getLanguageName(code: string): string {
+    const languages: Record<string, string> = {
+        'hi-IN': 'Hindi',
+        'bn-IN': 'Bengali',
+        'ta-IN': 'Tamil',
+        'te-IN': 'Telugu',
+        'gu-IN': 'Gujarati',
+        'kn-IN': 'Kannada',
+        'ml-IN': 'Malayalam',
+        'mr-IN': 'Marathi',
+        'pa-IN': 'Punjabi',
+        'od-IN': 'Odia',
+        'en-IN': 'English (India)',
+        'as-IN': 'Assamese',
+        'mai-IN': 'Maithili',
+        'brx-IN': 'Bodo',
+        'mni-IN': 'Manipuri',
+        'doi-IN': 'Dogri',
+        'ne-IN': 'Nepali',
+        'ks-IN': 'Kashmiri',
+        'sa-IN': 'Sanskrit',
+        'kok-IN': 'Konkani',
+        'sat-IN': 'Santali',
+        'sd-IN': 'Sindhi',
+        'ur-IN': 'Urdu'
+    }
+    return languages[code] || code
 }
 
 export default VoiceMode

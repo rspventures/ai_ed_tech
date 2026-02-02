@@ -93,6 +93,27 @@ class Settings(BaseSettings):
     PHOENIX_ENABLED: bool = True
     PHOENIX_ENDPOINT: str = "http://phoenix:6006"
     
+    # Sarvam AI (Multilingual Voice)
+    SARVAM_API_KEY: str = ""
+    SARVAM_STT_MODEL: str = "saaras:v2.5"  # Speech-to-English
+    SARVAM_TRANSLATE_MODEL: str = "sarvam-translate:v1"
+    SARVAM_TTS_MODEL: str = "bulbul:v2"
+    SARVAM_TTS_SPEAKER: str = "vidya"  # Clear teaching voice
+    SARVAM_TTS_PACE: float = 0.9  # Slightly slower for teaching
+    SARVAM_TTS_SAMPLE_RATE: int = 16000
+    
+    # OpenAI TTS (Text-to-Speech) - kept as fallback
+    OPENAI_TTS_MODEL: str = "tts-1"  # or "tts-1-hd" for higher quality
+    OPENAI_TTS_VOICE: str = "alloy"  # Warm, enthusiastic voice
+    OPENAI_TTS_SPEED: float = 1.15  # Slightly faster for natural pacing
+    
+    # ElevenLabs TTS (Primary - High Quality)
+    ELEVENLABS_API_KEY: str = ""
+    ELEVENLABS_VOICE: str = "rachel"  # Warm, friendly female voice
+    ELEVENLABS_MODEL: str = "turbo"  # eleven_turbo_v2_5 for low latency
+    ELEVENLABS_STABILITY: float = 0.5  # Lower = more expressive
+    ELEVENLABS_SIMILARITY: float = 0.75  # Higher = more consistent
+    
     # CORS - stored as comma-separated string
     CORS_ORIGINS_STR: str = "http://localhost:3000,http://localhost:5173"
     
