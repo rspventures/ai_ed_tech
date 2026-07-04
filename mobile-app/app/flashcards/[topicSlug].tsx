@@ -59,7 +59,6 @@ export default function FlashcardsPage() {
             const decks = await studyService.listFlashcardDecks(topicData.id);
             setDeckList(decks);
         } catch (err) {
-            console.error('Failed to load topic:', err);
             setError('Failed to load flashcard decks');
         } finally {
             setLoading(false);
@@ -75,7 +74,6 @@ export default function FlashcardsPage() {
             setIsFlipped(false);
             setReviewedCards(new Set());
         } catch (err) {
-            console.error('Failed to load deck:', err);
             setError('Failed to load flashcard deck');
         } finally {
             setLoadingDeck(false);

@@ -39,7 +39,6 @@ export default function PracticeScreen() {
             const data = await practiceService.startPractice({ subtopic_id: id });
             setQuestion(data);
         } catch (err) {
-            console.log('Failed to load question:', err);
             Alert.alert('Error', 'Failed to generate question. Please try again.');
             router.back();
         } finally {
@@ -55,7 +54,6 @@ export default function PracticeScreen() {
             const result = await practiceService.submitAnswer(question.question_id, selectedOption);
             setFeedback(result);
         } catch (err) {
-            console.log('Failed to submit answer:', err);
             Alert.alert('Error', 'Failed to submit answer.');
         } finally {
             setSubmitting(false);

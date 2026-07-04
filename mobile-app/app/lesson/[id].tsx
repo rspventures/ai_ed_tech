@@ -38,7 +38,6 @@ export default function LessonScreen() {
             setLesson(data);
             setStartTime(Date.now());
         } catch (err) {
-            console.log('Failed to load lesson:', err);
             Alert.alert('Error', 'Failed to load lesson content.');
             router.back();
         } finally {
@@ -68,7 +67,6 @@ export default function LessonScreen() {
                 ]
             );
         } catch (err) {
-            console.log('Failed to complete lesson:', err);
             Alert.alert('Error', 'Failed to save progress. Please try again.');
         } finally {
             setCompleting(false);

@@ -92,7 +92,6 @@ export default function DocumentChatScreen() {
             const response = await documentService.generateQuiz(id as string, 5, 5);
             setQuizQuestions(response.questions || []);
         } catch (error) {
-            console.error('Quiz generation failed:', error);
             Alert.alert('Error', 'Failed to generate quiz. Please try again.');
             setShowQuiz(false);
         } finally {

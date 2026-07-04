@@ -57,13 +57,11 @@ export default function AssessmentScreen() {
             try {
                 const data = await curriculumService.getTopic(id!);
                 setTopic(data);
-            } catch (e) {
-                console.log('Topic fetch failed, proceeding with ID as is');
+            } catch {
             }
 
             setLoading(false);
         } catch (err) {
-            console.log('Failed to load topic:', err);
             Alert.alert('Error', 'Failed to load assessment context.');
             router.back();
         }
@@ -79,7 +77,6 @@ export default function AssessmentScreen() {
             setStartTime(Date.now());
             setStatus('active');
         } catch (err) {
-            console.log('Failed to start assessment:', err);
             Alert.alert('Error', 'Failed to start assessment. Please try again.');
         } finally {
             setLoading(false);
@@ -127,7 +124,6 @@ export default function AssessmentScreen() {
             setResult(resultData);
             setStatus('results');
         } catch (err) {
-            console.log('Failed to submit:', err);
             Alert.alert('Error', 'Failed to submit assessment.');
             setStatus('active');
         }

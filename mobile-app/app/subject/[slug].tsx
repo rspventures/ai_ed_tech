@@ -41,7 +41,6 @@ export default function SubjectDetailScreen() {
                 gradeLevel = profile.grade_level || 1;
                 setStudentGrade(gradeLevel);
             } catch {
-                console.log('Could not fetch profile, defaulting to grade 1');
             }
 
             const [subjectData, progressData] = await Promise.all([
@@ -61,7 +60,6 @@ export default function SubjectDetailScreen() {
                 setFilteredTopics([]);
             }
         } catch (err) {
-            console.log('Failed to load subject:', err);
             setError('Failed to load subject');
         } finally {
             setLoading(false);

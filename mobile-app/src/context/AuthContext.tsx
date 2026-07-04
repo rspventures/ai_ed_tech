@@ -28,8 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             await AsyncStorage.removeItem('access_token');
             await AsyncStorage.removeItem('refresh_token');
             setUser(null);
-        } catch (error) {
-            console.log('Session clear failed:', error);
+        } catch {
         } finally {
             setIsLoading(false);
         }
@@ -49,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const refreshToken = await AsyncStorage.getItem('refresh_token');
             if (refreshToken) {
                 // Fire-and-forget the server logout to prevent UI hanging if server is unreachable
-                authService.logout(refreshToken).catch(err => console.log('Logout API failed', err));
+                authService.logout(refreshToken).catch(() => {});
             }
         } catch {
             // Ignore errors

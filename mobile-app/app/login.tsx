@@ -107,10 +107,6 @@ export default function LoginScreen() {
                     </Text>
                 </TouchableOpacity>
 
-                {/* Footer */}
-                <Text style={styles.footer}>
-                    Backend: http://10.0.2.2:8000
-                </Text>
             </KeyboardAvoidingView>
         </SafeAreaView >
     );
@@ -196,11 +192,5 @@ const styles = StyleSheet.create({
     linkHighlight: {
         color: '#007AFF',
         fontWeight: 'bold',
-    },
-    footer: {
-        textAlign: 'center',
-        color: '#999',
-        fontSize: 12,
-        marginTop: 40,
     },
 });

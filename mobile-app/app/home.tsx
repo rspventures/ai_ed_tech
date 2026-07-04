@@ -22,6 +22,7 @@ export default function HomeScreen() {
     const [progress, setProgress] = useState<EnrichedProgress[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [loadError, setLoadError] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -35,8 +36,8 @@ export default function HomeScreen() {
             ]);
             setSubjects(subjectsData);
             setProgress(progressData);
-        } catch (error) {
-            console.log('Failed to load dashboard data:', error);
+        } catch {
+            setLoadError(true);
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -45,6 +46,7 @@ export default function HomeScreen() {
 
     const onRefresh = () => {
         setRefreshing(true);
+        setLoadError(false);
         loadData();
     };
 
@@ -151,6 +153,10 @@ export default function HomeScreen() {
                 {loading ? (
                     <View style={styles.loadingContainer}>
                         <ActivityIndicator size="large" color="#007AFF" />
+                    </View>
+                ) : loadError ? (
+                    <View style={styles.emptyContainer}>
+                        <Text style={styles.emptyText}>Could not load subjects. Pull down to retry.</Text>
                     </View>
                 ) : subjects.length === 0 ? (
                     <View style={styles.emptyContainer}>

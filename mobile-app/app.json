@@ -1,7 +1,7 @@
 {
     "expo": {
-        "name": "mobile-app",
-        "slug": "mobile-app",
+        "name": "AI Tutor",
+        "slug": "ai-tutor",
         "version": "1.0.0",
         "orientation": "portrait",
         "icon": "./assets/icon.png",
@@ -15,23 +15,30 @@
             "**/*"
         ],
         "ios": {
-            "supportsTablet": true
+            "supportsTablet": true,
+            "bundleIdentifier": "com.aiedtech.aitutor"
         },
         "android": {
+            "package": "com.aiedtech.aitutor",
+            "versionCode": 1,
             "adaptiveIcon": {
                 "foregroundImage": "./assets/adaptive-icon.png",
                 "backgroundColor": "#ffffff"
             },
-            "permissions": [
-                "android.permission.DETECT_SCREEN_CAPTURE"
-            ]
+            "permissions": []
         },
         "web": {
             "favicon": "./assets/favicon.png"
         },
-        "scheme": "mobile-app",
+        "scheme": "ai-tutor",
         "plugins": [
-          "expo-router"
-        ]
+            "expo-router"
+        ],
+        "extra": {
+            "apiBaseUrl": "https://api.your-domain.com/api/v1",
+            "eas": {
+                "projectId": "YOUR_EAS_PROJECT_ID"
+            }
+        }
     }
 }

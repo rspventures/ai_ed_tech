@@ -18,6 +18,7 @@ export default function DocumentsScreen() {
     const [documents, setDocuments] = useState<Document[]>([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
+    const [loadError, setLoadError] = useState(false);
 
     useEffect(() => {
         loadDocuments();
@@ -28,8 +29,8 @@ export default function DocumentsScreen() {
             setLoading(true);
             const data = await documentService.listDocuments();
             setDocuments(data.documents);
-        } catch (error) {
-            console.log('Error loading documents:', error);
+        } catch {
+            setLoadError(true);
         } finally {
             setLoading(false);
         }
@@ -50,8 +51,7 @@ export default function DocumentsScreen() {
 
             Alert.alert('Success', 'Document uploaded successfully!');
             loadDocuments();
-        } catch (error) {
-            console.log('Upload error:', error);
+        } catch {
             Alert.alert('Error', 'Failed to upload document');
         } finally {
             setUploading(false);
@@ -89,7 +89,15 @@ export default function DocumentsScreen() {
                 </View>
             ) : (
                 <ScrollView style={styles.content}>
-                    {documents.length === 0 ? (
+                    {loadError ? (
+                        <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyText}>Could not load documents.</Text>
+                            <Text style={styles.emptySubText}>Check your connection and try again.</Text>
+                            <TouchableOpacity style={styles.uploadBtn} onPress={loadDocuments}>
+                                <Text style={styles.uploadBtnText}>Retry</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : documents.length === 0 ? (
                         <View style={styles.emptyContainer}>
                             <Text style={styles.emptyText}>No documents uploaded yet.</Text>
                             <Text style={styles.emptySubText}>Upload PDF notes to chat with them.</Text>

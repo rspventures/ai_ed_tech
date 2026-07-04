@@ -47,7 +47,6 @@ export default function StudyScreen() {
                 const path = await studyService.getLearningPath(topicData.id);
                 setLearningPath(path);
             } catch {
-                console.log('No learning path available');
             }
 
             // Load subtopic progress
@@ -75,7 +74,6 @@ export default function StudyScreen() {
                 setSubtopics(subtopicsWithProgress);
             }
         } catch (err) {
-            console.log('Failed to load study data:', err);
             setError('Failed to load study materials');
         } finally {
             setLoading(false);

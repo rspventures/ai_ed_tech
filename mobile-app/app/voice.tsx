@@ -11,11 +11,11 @@ import {
     ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-// Note: User needs to install expo-av
-import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Audio, type AVPlaybackStatus } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
-import { useAuth } from '../src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { WS_BASE_URL } from '../src/api/client';
 
 // Types for Sarvam Voice Protocol
 interface VoiceMessage {
@@ -39,7 +39,6 @@ const LANGUAGES: Record<string, string> = {
 
 export default function VoiceScreen() {
     const router = useRouter();
-    const { user } = useAuth(); // Assuming there's a token directly available or via context
 
     const [isConnected, setIsConnected] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
@@ -82,16 +81,14 @@ export default function VoiceScreen() {
 
     const connectWebSocket = async () => {
         try {
-            // In a real app, get token from AuthContext or AsyncStorage
-            // const token = await AsyncStorage.getItem('access_token');
-            const token = "mock_token"; // Replace with actual token logic if available in context
+            const token = await AsyncStorage.getItem('access_token');
+            if (!token) {
+                setError('Not authenticated');
+                return;
+            }
 
-            // Determine API URL (localhost for emulator)
-            const API_URL = Platform.OS === 'android'
-                ? 'ws://10.0.2.2:8000/api/v1/voice/ws'
-                : 'ws://localhost:8000/api/v1/voice/ws';
-
-            ws.current = new WebSocket(`${API_URL}?token=${token}`);
+            const WS_URL = `${WS_BASE_URL}/api/v1/voice/ws`;
+            ws.current = new WebSocket(`${WS_URL}?token=${token}`);
 
             ws.current.onopen = () => {
                 setIsConnected(true);
@@ -103,15 +100,14 @@ export default function VoiceScreen() {
                 handleServerMessage(message);
             };
 
-            ws.current.onerror = (e) => {
+            ws.current.onerror = () => {
                 setError('Connection lost');
                 setIsConnected(false);
-                console.log('WS Error:', e);
             };
 
             ws.current.onclose = () => {
                 setIsConnected(false);
-                setIsListening(false);
+                setIsRecording(false);
             };
 
         } catch (err) {
@@ -176,7 +172,7 @@ export default function VoiceScreen() {
                 const { sound } = await Audio.Sound.createAsync({ uri: nextFile });
                 await sound.playAsync();
 
-                sound.setOnPlaybackStatusUpdate(async (status) => {
+                sound.setOnPlaybackStatusUpdate(async (status: AVPlaybackStatus) => {
                     if (status.isLoaded && status.didJustFinish) {
                         await sound.unloadAsync();
                         await FileSystem.deleteAsync(nextFile, { idempotent: true });
@@ -186,7 +182,6 @@ export default function VoiceScreen() {
                 });
             }
         } catch (err) {
-            console.log('Playback error:', err);
             isPlaying.current = false;
             setIsSpeaking(false);
         }
@@ -209,8 +204,7 @@ export default function VoiceScreen() {
             setIsRecording(true);
             startPulseAnimation();
 
-        } catch (err) {
-            console.error('Failed to start recording', err);
+        } catch {
         }
     };
 
@@ -244,8 +238,7 @@ export default function VoiceScreen() {
 
             recording.current = null;
 
-        } catch (err) {
-            console.error('Failed to stop recording', err);
+        } catch {
         }
     };
 
@@ -316,7 +309,10 @@ export default function VoiceScreen() {
                     contentContainerStyle={styles.transcriptContent}
                     showsVerticalScrollIndicator={false}
                 >
-                    {transcript.length === 0 && (
+                    {error && (
+                        <Text style={styles.errorText}>{error}</Text>
+                    )}
+                    {transcript.length === 0 && !error && (
                         <Text style={styles.placeholderText}>
                             Tap and hold the mic to speak in any Indian language! 🇮🇳
                         </Text>
@@ -446,6 +442,12 @@ const styles = StyleSheet.create({
     },
     transcriptContent: {
         paddingBottom: 20,
+    },
+    errorText: {
+        color: '#ef4444',
+        textAlign: 'center',
+        marginTop: 40,
+        fontSize: 14,
     },
     placeholderText: {
         color: 'rgba(255,255,255,0.3)',

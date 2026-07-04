@@ -70,7 +70,6 @@ export default function ExamScreen() {
 
             setState('setup');
         } catch (err) {
-            console.log('Failed to load subject:', err);
             Alert.alert('Error', 'Failed to load subject');
             router.back();
         }
@@ -124,7 +123,6 @@ export default function ExamScreen() {
                 });
             }, 1000);
         } catch (err) {
-            console.log('Failed to start exam:', err);
             Alert.alert('Error', 'Failed to start exam. Please try again.');
             setState('setup');
         }
@@ -197,7 +195,6 @@ export default function ExamScreen() {
             setResult(examResult);
             setState('results');
         } catch (err) {
-            console.log('Failed to submit exam:', err);
             Alert.alert('Error', 'Failed to submit exam. Please try again.');
             setState('in_progress');
         }

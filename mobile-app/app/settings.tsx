@@ -9,7 +9,6 @@ import {
     TextInput,
     Alert,
     ActivityIndicator,
-    Switch
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { userService, StudentProfile } from '../src/services/user';
@@ -58,9 +57,8 @@ export default function SettingsScreen() {
             setGradeLevel(data.grade_level || 3);
             setSelectedAvatar(data.preferences?.avatar_id || data.avatar_url || 'owl');
             setThemeColor(data.theme_color || '#6366f1');
-        } catch (error) {
-            console.log('Failed to load profile:', error);
-            // Alert.alert('Error', 'Could not load profile');
+        } catch {
+            Alert.alert('Error', 'Could not load profile');
         } finally {
             setLoading(false);
         }
@@ -85,8 +83,7 @@ export default function SettingsScreen() {
             const updated = await userService.getProfile();
             setProfile(updated);
 
-        } catch (error) {
-            console.log('Save failed:', error);
+        } catch {
             Alert.alert('Error', 'Failed to save settings.');
         } finally {
             setSaving(false);

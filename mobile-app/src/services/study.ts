@@ -1,5 +1,5 @@
 import api from '../api/client';
-import { TopicWithSubtopics, LearningPath, Lesson } from '../types';
+import { TopicWithSubtopics, LearningPath, Lesson, FlashcardDeck, FlashcardDeckListItem } from '../types';
 
 export const studyService = {
     /**
@@ -57,7 +57,7 @@ export const studyService = {
     /**
      * Get or generate a flashcard deck for a subtopic
      */
-    async getFlashcards(subtopicId: string): Promise<import('./types').FlashcardDeck> {
+    async getFlashcards(subtopicId: string): Promise<FlashcardDeck> {
         const response = await api.get(`/study/flashcards/${subtopicId}`, {
             timeout: 60000, // 60 seconds for LLM generation
         });
@@ -67,7 +67,7 @@ export const studyService = {
     /**
      * List all flashcard decks for a topic
      */
-    async listFlashcardDecks(topicId: string): Promise<import('./types').FlashcardDeckListItem[]> {
+    async listFlashcardDecks(topicId: string): Promise<FlashcardDeckListItem[]> {
         const response = await api.get(`/study/flashcards/topic/${topicId}`);
         return response.data;
     }

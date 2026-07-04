@@ -56,7 +56,6 @@ export default function TestScreen() {
             setTopic({ id: topicData.id, name: topicData.name });
             setState('ready');
         } catch (err) {
-            console.log('Failed to load topic:', err);
             Alert.alert('Error', 'Failed to load topic');
             router.back();
         }
@@ -88,7 +87,6 @@ export default function TestScreen() {
                 });
             }, 1000);
         } catch (err) {
-            console.log('Failed to start test:', err);
             Alert.alert('Error', 'Failed to start test. Please try again.');
             setState('ready');
         }
@@ -159,7 +157,6 @@ export default function TestScreen() {
             setResult(testResult);
             setState('results');
         } catch (err) {
-            console.log('Failed to submit test:', err);
             Alert.alert('Error', 'Failed to submit test. Please try again.');
             setState('in_progress');
         }
