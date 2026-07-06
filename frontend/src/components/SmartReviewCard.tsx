@@ -155,7 +155,11 @@ const SmartReviewCard: React.FC = () => {
                 {review.items.slice(0, 5).map((item) => (
                     <button
                         key={item.subtopic_id}
-                        onClick={() => navigate(`/study?subtopic=${item.subtopic_id}`)}
+                        // D12: previously navigated to `/study?subtopic=...`, which does not
+                        // match `/study/:topicSlug` (query string != path param) and dead-ended
+                        // on a blank screen. Route to the existing review hub until the review
+                        // items carry a topic slug (Phase 4 review redesign).
+                        onClick={() => navigate('/quick-review')}
                         className="w-full flex items-center gap-4 p-4 bg-black/20 rounded-xl hover:bg-black/40 transition-all group"
                     >
                         {/* Mastery indicator */}
@@ -197,7 +201,8 @@ const SmartReviewCard: React.FC = () => {
             {review.total_due > 5 && (
                 <div className="p-4 border-t border-white/10">
                     <button
-                        onClick={() => navigate('/review')}
+                        // D12: `/review` route does not exist. Point at the existing hub.
+                        onClick={() => navigate('/quick-review')}
                         className="w-full flex items-center justify-center gap-2 py-3 bg-purple-600 hover:bg-purple-700 rounded-xl font-medium transition-colors"
                     >
                         <Target className="w-4 h-4" />

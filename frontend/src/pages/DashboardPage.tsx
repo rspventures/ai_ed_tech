@@ -599,7 +599,7 @@ export default function DashboardPage() {
                                             <div className="mt-4 pt-4 border-t border-white/10">
                                                 <p className="text-sm text-gray-300">
                                                     <strong className="text-primary-400">Feedback:</strong>{' '}
-                                                    {assessment.feedback.overall_assessment?.slice(0, 150)}...
+                                                    {assessment.feedback.overall_score_interpretation?.slice(0, 150)}...
                                                 </p>
                                             </div>
                                         )}
