@@ -406,7 +406,14 @@ export default function ExamScreen() {
         <SafeAreaView style={styles.safeArea}>
             {/* Header with timer */}
             <View style={styles.examHeader}>
-                <TouchableOpacity onPress={() => router.back()}>
+                <TouchableOpacity onPress={() => Alert.alert(
+                    'Leave exam?',
+                    'Your progress will be lost if you leave now.',
+                    [
+                        { text: 'Keep going', style: 'cancel' },
+                        { text: 'Leave', style: 'destructive', onPress: () => router.back() },
+                    ]
+                )}>
                     <Text style={styles.closeIcon}>✕</Text>
                 </TouchableOpacity>
                 <Text style={styles.examTitle}>Exam</Text>

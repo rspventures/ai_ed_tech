@@ -294,7 +294,14 @@ export default function TestScreen() {
         <SafeAreaView style={styles.safeArea}>
             {/* Header with timer */}
             <View style={styles.testHeader}>
-                <TouchableOpacity onPress={() => router.back()}>
+                <TouchableOpacity onPress={() => Alert.alert(
+                    'Leave test?',
+                    'Your progress will be lost if you leave now.',
+                    [
+                        { text: 'Keep going', style: 'cancel' },
+                        { text: 'Leave', style: 'destructive', onPress: () => router.back() },
+                    ]
+                )}>
                     <Text style={styles.closeIcon}>✕</Text>
                 </TouchableOpacity>
                 <Text style={styles.testTitle}>Test</Text>

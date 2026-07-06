@@ -16,7 +16,10 @@
         ],
         "ios": {
             "supportsTablet": true,
-            "bundleIdentifier": "com.aiedtech.aitutor"
+            "bundleIdentifier": "com.aiedtech.aitutor",
+            "infoPlist": {
+                "NSMicrophoneUsageDescription": "AI Tutor uses your microphone so you can talk with your tutor in Voice mode."
+            }
         },
         "android": {
             "package": "com.aiedtech.aitutor",
@@ -25,14 +28,23 @@
                 "foregroundImage": "./assets/adaptive-icon.png",
                 "backgroundColor": "#ffffff"
             },
-            "permissions": []
+            "permissions": [
+                "android.permission.RECORD_AUDIO",
+                "android.permission.MODIFY_AUDIO_SETTINGS"
+            ]
         },
         "web": {
             "favicon": "./assets/favicon.png"
         },
         "scheme": "ai-tutor",
         "plugins": [
-            "expo-router"
+            "expo-router",
+            [
+                "expo-av",
+                {
+                    "microphonePermission": "AI Tutor uses your microphone so you can talk with your tutor in Voice mode."
+                }
+            ]
         ],
         "extra": {
             "apiBaseUrl": "https://api.your-domain.com/api/v1",

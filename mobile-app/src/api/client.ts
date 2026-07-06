@@ -31,17 +31,42 @@ api.interceptors.request.use(
     (error) => Promise.reject(error)
 );
 
+// Allow the app (AuthContext) to react to an unrecoverable session expiry —
+// e.g. clear the user and redirect to /login. Set once at startup.
+let sessionExpiredHandler: (() => void) | null = null;
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+    sessionExpiredHandler = handler;
+}
+
+async function clearSessionAndSignal(): Promise<never> {
+    await AsyncStorage.removeItem('access_token');
+    await AsyncStorage.removeItem('refresh_token');
+    // Notify the app so it can redirect to login (previously SESSION_EXPIRED was
+    // thrown but never handled, stranding the user — D7).
+    try {
+        sessionExpiredHandler?.();
+    } catch {
+        // never let the handler break the rejection path
+    }
+    return Promise.reject(new Error('SESSION_EXPIRED'));
+}
+
 // Response interceptor - handle token refresh
 api.interceptors.response.use(
     (response) => response,
     async (error: AxiosError<ApiError>) => {
-        const originalRequest = error.config;
+        // `_retry` guards against an infinite refresh/retry loop when the retried
+        // request also returns 401 (D7).
+        const originalRequest = error.config as
+            | (typeof error.config & { _retry?: boolean })
+            | undefined;
 
-        // If 401 and we have a refresh token, try to refresh
-        if (error.response?.status === 401 && originalRequest) {
+        if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+            const isRefreshCall = originalRequest.url?.includes('/auth/refresh');
             const refreshToken = await AsyncStorage.getItem('refresh_token');
 
-            if (refreshToken) {
+            if (refreshToken && !isRefreshCall) {
+                originalRequest._retry = true;
                 try {
                     const response = await axios.post<TokenResponse>(
                         `${API_BASE_URL}/auth/refresh`,
@@ -52,16 +77,17 @@ api.interceptors.response.use(
                     await AsyncStorage.setItem('access_token', access_token);
                     await AsyncStorage.setItem('refresh_token', newRefreshToken);
 
-                    // Retry original request
+                    // Retry the original request once with the new token.
                     originalRequest.headers.Authorization = `Bearer ${access_token}`;
                     return api(originalRequest);
                 } catch {
-                    // Refresh failed — clear tokens and signal caller to redirect to login
-                    await AsyncStorage.removeItem('access_token');
-                    await AsyncStorage.removeItem('refresh_token');
-                    return Promise.reject(new Error('SESSION_EXPIRED'));
+                    return clearSessionAndSignal();
                 }
             }
+
+            // No refresh token, the refresh call itself 401'd, or already retried:
+            // the session is unrecoverable.
+            return clearSessionAndSignal();
         }
 
         return Promise.reject(error);

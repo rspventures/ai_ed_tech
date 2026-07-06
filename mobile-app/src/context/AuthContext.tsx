@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
 import { authService } from '../services/auth';
+import { setSessionExpiredHandler } from '../api/client';
 import { User, LoginCredentials } from '../types';
 
 interface AuthContextType {
@@ -21,14 +23,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         checkUser();
     }, []);
 
+    // When the API layer detects an unrecoverable session expiry, clear the
+    // user and send them to login (D7: SESSION_EXPIRED was never handled before).
+    useEffect(() => {
+        setSessionExpiredHandler(() => {
+            setUser(null);
+            router.replace('/login');
+        });
+        return () => setSessionExpiredHandler(null);
+    }, []);
+
     const checkUser = async () => {
+        // P0.3: restore the session on launch instead of forcing a fresh login
+        // every time. If a token exists we validate it by fetching the current
+        // user (the axios interceptor silently refreshes an expired access
+        // token). Only if there is no token, or refresh fails, do we require
+        // login again.
         try {
-            // Per user requirement: Always ask for login on launch.
-            // We clear any existing tokens to ensure a fresh start.
+            const token = await AsyncStorage.getItem('access_token');
+            if (!token) {
+                setUser(null);
+                return;
+            }
+            const userData = await authService.getCurrentUser();
+            setUser(userData);
+        } catch {
+            // Token invalid/expired and refresh failed → clear and require login.
             await AsyncStorage.removeItem('access_token');
             await AsyncStorage.removeItem('refresh_token');
             setUser(null);
-        } catch {
         } finally {
             setIsLoading(false);
         }
