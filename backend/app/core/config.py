@@ -83,7 +83,9 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
     
     # Anthropic specific
-    ANTHROPIC_MODEL: str = "claude-3-sonnet-20240229"
+    # NOTE: claude-3-sonnet-20240229 was retired and 404s. Current, cost-effective
+    # default; the LiteLLM model router (Phase 2) supersedes this per-workload.
+    ANTHROPIC_MODEL: str = "claude-haiku-4-5"
     
     # LLM Performance
     LLM_TIMEOUT_SECONDS: int = 30

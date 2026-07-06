@@ -488,31 +488,30 @@ async def process_document_background(
                 print(f"[DocumentService] Document {document_id} not found in background task")
                 return
             
-            # Process document
-            print(f"[DocumentService] calling document_agent.process_file for {file_path}")
-            result = await document_agent.process_file(
-                file_path=file_path,
-                user_id=user_id,
-                student_id=student_id,
-                subject=subject,
-                grade_level=grade_level,
+            # Process document in a SINGLE pass (D2). Previously process_file()
+            # — which itself calls run() — ran first, then run() was invoked
+            # AGAIN with identical input, doubling all extraction/OCR/embedding
+            # cost and latency per upload. Now we run once and reuse the output.
+            print(f"[DocumentService] running document_agent for {file_path}")
+            agent_result = await document_agent.run(
+                user_input=f"Process document: {file_path}",
+                metadata={
+                    "file_path": file_path,
+                    "user_id": user_id,
+                    "student_id": student_id,
+                    "subject": subject,
+                    "grade_level": grade_level,
+                }
             )
-            
-            if result.status == "completed":
-                print(f"[DocumentService] process_file completed, running RAG ingestion for {document_id}")
-                # Get full result with chunks and embeddings
-                agent_result = await document_agent.run(
-                    user_input=f"Process document: {file_path}",
-                    metadata={
-                        "file_path": file_path,
-                        "user_id": user_id,
-                        "student_id": student_id,
-                        "subject": subject,
-                        "grade_level": grade_level,
-                    }
-                )
-                
-                if agent_result.success:
+
+            document_result = (
+                agent_result.output.get("document")
+                if (agent_result.success and agent_result.output)
+                else None
+            )
+
+            if agent_result.success and document_result:
+                if document_result.status == "completed":
                     output = agent_result.output
                     
                     # Store chunks with contexts
@@ -659,15 +658,16 @@ async def process_document_background(
                     print(f"[DocumentService] Document {document_id} processing completed successfully")
                     
                 else:
-                    print(f"[DocumentService] Agent run failed: {agent_result.error}")
+                    # Ran, but the document did not reach "completed" status.
+                    print(f"[DocumentService] Document not completed: {document_result.error}")
                     document.status = DocumentStatus.FAILED
-                    document.error_message = agent_result.error or "Processing failed"
+                    document.error_message = document_result.error or "Processing failed"
                     await session.commit()
             else:
-                 print(f"[DocumentService] process_file failed: {result.error}")
-                 document.status = DocumentStatus.FAILED
-                 document.error_message = result.error or "Processing failed"
-                 await session.commit()
+                print(f"[DocumentService] Agent run failed: {agent_result.error}")
+                document.status = DocumentStatus.FAILED
+                document.error_message = agent_result.error or "Processing failed"
+                await session.commit()
                  
         except Exception as e:
             print(f"[DocumentService] Background processing fatal error: {e}")

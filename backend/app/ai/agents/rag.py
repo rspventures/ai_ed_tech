@@ -158,15 +158,10 @@ Return as JSON array:
 
 IMPORTANT: The correct_answer MUST be the exact, complete text of the correct option from the options array, NOT just the letter (A, B, C, D)."""
 
-    RELEVANCE_CHECK_PROMPT = """Evaluate if these document chunks are relevant to the question.
-
-QUESTION: {question}
-
-CHUNKS:
-{chunks}
-
-For each chunk, return a relevance score 0-1 and brief reason.
-Return as JSON: {{"scores": [{{"chunk_id": "...", "score": 0.8, "reason": "..."}}]}}"""
+    # NOTE: A second RELEVANCE_CHECK_PROMPT ({question}/{chunks}) used to live here
+    # and shadowed the real one above, so the .format(summary=, subject=, query=)
+    # call raised KeyError on every relevance check and it silently never ran (D3).
+    # Removed — the summary/subject/query prompt above is the one actually used.
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

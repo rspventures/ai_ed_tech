@@ -331,23 +331,28 @@ async def voice_websocket(
                         "language": "en-IN"
                     })
                     
-                    # === STEP 6: TTS for text response (in English) ===
+                    # === STEP 6: TTS for text response (ElevenLabs) ===
+                    # D4: this branch previously called the removed `sarvam` module
+                    # (NameError on every text turn). Use the same ElevenLabs
+                    # service as the audio branch.
                     try:
-                        response_audio = await sarvam.text_to_speech(
+                        elevenlabs_tts = get_elevenlabs_service()
+                        response_audio = await elevenlabs_tts.text_to_speech(
                             text=safe_output,
-                            language_code="en-IN"
+                            output_format="pcm_24000"
                         )
-                        
+
                         audio_base64 = base64.b64encode(response_audio).decode('utf-8')
                         await websocket.send_json({
                             "type": "audio",
                             "data": audio_base64,
-                            "format": "wav",
-                            "sample_rate": settings.SARVAM_TTS_SAMPLE_RATE
+                            "format": "pcm",
+                            "sample_rate": 24000
                         })
-                        
-                    except SarvamAPIError:
-                        pass  # TTS failure for text mode is okay
+
+                    except ElevenLabsTTSError as e:
+                        logger.error(f"ElevenLabs TTS failed (text mode): {e}")
+                        # TTS failure for text mode is non-fatal; transcript already sent.
                     
                     await websocket.send_json({
                         "type": "response_complete"
