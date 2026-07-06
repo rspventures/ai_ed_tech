@@ -41,13 +41,15 @@ class ExamStartResponse(BaseModel):
 
 
 class ExamSubmissionItem(BaseModel):
-    """Single answer submission with question context."""
+    """Single answer submission. Grading is server-authoritative; `question`,
+    `options` and `correct_answer` are legacy and ignored. `topic_id` is used
+    only as a fallback for the per-topic breakdown."""
     question_id: str
-    question: str
-    options: list[str]
-    answer: str
-    correct_answer: str
+    answer: str | list[str]
     topic_id: str
+    question: str | None = None
+    options: list[str] | None = None
+    correct_answer: str | list[str] | None = None  # ignored (legacy)
 
 
 class ExamSubmitRequest(BaseModel):

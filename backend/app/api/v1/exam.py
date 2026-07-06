@@ -28,6 +28,8 @@ from app.schemas.exam import (
 )
 from app.ai.agents.examiner import examiner_agent as question_generator, QuestionDifficulty
 from app.ai.agents.feedback import feedback_agent, FeedbackType
+from app.services.assessment_grading import prepare_question
+from app.services.assessment_store import persist_prepared, grade_submissions
 
 router = APIRouter(prefix="/exams", tags=["Exams"])
 
@@ -117,27 +119,49 @@ async def start_exam(
         )
         
         
-        # Convert to ExamQuestion format
-        # Questions come back in same order as topic_distribution
+        # Prepare each question server-side (shuffle + capture answer key, D1),
+        # persist the keys, and return only client-safe fields.
+        # Questions come back in same order as topic_distribution.
         questions: list[ExamQuestion] = []
+        prepared_all = []
         q_idx = 0
-        
+
         for topic_idx, (topic_name, subtopic_name, count) in enumerate(topic_distribution):
             topic_obj = topic_objects[topic_idx]
-            
+
             for _ in range(count):
                 if q_idx < len(questions_batch):
                     q_data = questions_batch[q_idx]
-                    questions.append(ExamQuestion(
-                        question_id=f"exam_q_{q_idx}_{uuid.uuid4().hex[:8]}",
+                    p = prepare_question(
                         question=q_data.question,
+                        answer=q_data.answer,
                         options=q_data.options or [],
+                        correct_answers=getattr(q_data, "correct_answers", None),
+                        question_type=getattr(q_data, "question_type", "multiple_choice"),
+                        difficulty=getattr(q_data, "difficulty", "easy"),
+                        topic_id=str(topic_obj.id),
+                    )
+                    prepared_all.append(p)
+                    questions.append(ExamQuestion(
+                        question_id=p.question_id,
+                        question=p.question,
+                        options=p.options,
                         topic_id=str(topic_obj.id),
                         topic_name=topic_obj.name
                     ))
                     q_idx += 1
 
-                
+        await persist_prepared(
+            db,
+            session_id=exam_session_id,
+            student_id=student.id,
+            origin="exam",
+            prepared=prepared_all,
+        )
+        await db.commit()
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error generating exam questions: {e}")
         raise HTTPException(
@@ -178,47 +202,56 @@ async def submit_exam(
     if not subject:
         raise HTTPException(status_code=404, detail="Subject not found")
     
-    # 2. Grade answers and build topic breakdown
+    # 2. Grade answers SERVER-SIDE against the stored key (D1) and build the
+    #    per-topic breakdown. The client's `correct_answer` is ignored; topic
+    #    grouping prefers the authoritative stored topic_id.
+    graded = await grade_submissions(
+        db,
+        student_id=student.id,
+        submissions=[
+            {"question_id": item.question_id, "answer": item.answer, "question": item.question}
+            for item in request.answers
+        ],
+    )
+
+    def _as_text(value) -> str:
+        return ", ".join(str(v) for v in value) if isinstance(value, list) else str(value)
+
     correct_count = 0
     topic_scores: dict[str, dict] = {}  # { topic_id: { correct, total, name } }
     details = []
-    
-    for item in request.answers:
-        is_correct = item.answer.strip().lower() == item.correct_answer.strip().lower()
-        
-        if is_correct:
+
+    for g, item in zip(graded, request.answers):
+        if g.is_correct:
             correct_count += 1
-        
-        # Track per-topic
-        if item.topic_id not in topic_scores:
-            topic_scores[item.topic_id] = {"correct": 0, "total": 0, "name": "Unknown"}
-        
-        topic_scores[item.topic_id]["total"] += 1
-        if is_correct:
-            topic_scores[item.topic_id]["correct"] += 1
-        
-        # Get topic name from question data
-        # (We'll update this from the first occurrence)
-        
+
+        topic_id = g.topic_id or item.topic_id or "unknown"
+        if topic_id not in topic_scores:
+            topic_scores[topic_id] = {"correct": 0, "total": 0, "name": "Unknown"}
+        topic_scores[topic_id]["total"] += 1
+        if g.is_correct:
+            topic_scores[topic_id]["correct"] += 1
+
         details.append({
-            "question": item.question,
-            "student_answer": item.answer,
-            "correct_answer": item.correct_answer,
-            "is_correct": is_correct,
-            "topic_id": item.topic_id
+            "question": g.question,
+            "student_answer": _as_text(g.student_answer),
+            "correct_answer": _as_text(g.correct_answer),
+            "is_correct": g.is_correct,
+            "topic_id": topic_id,
         })
-    
+
     # 3. Get topic names
     for topic_id_str in topic_scores.keys():
         try:
             topic = await db.get(Topic, uuid.UUID(topic_id_str))
             if topic:
                 topic_scores[topic_id_str]["name"] = topic.name
-        except:
+        except Exception:
             pass
-    
+
     # 4. Calculate overall score
-    score = (correct_count / len(request.answers)) * 100 if request.answers else 0
+    graded_total = len(graded)
+    score = (correct_count / graded_total) * 100 if graded_total else 0
     
     # 5. Build topic breakdown response
     topic_breakdown_list: list[TopicBreakdown] = []
@@ -249,7 +282,7 @@ async def submit_exam(
             topic=", ".join([tb.topic_name for tb in topic_breakdown_list]),
             score=score,
             correct=correct_count,
-            total=len(request.answers),
+            total=graded_total,
             questions_detail=questions_detail,
             grade=student.grade_level or 1,
             topic_breakdown=topic_breakdown_list
@@ -283,7 +316,7 @@ async def submit_exam(
         subject_id=subject.id,
         topic_ids=[str(tid) for tid in request.topic_ids],
         score=score,
-        total_questions=len(request.answers),
+        total_questions=graded_total,
         correct_questions=correct_count,
         duration_seconds=request.duration_seconds,
         topic_breakdown={tid: data for tid, data in topic_scores.items()},

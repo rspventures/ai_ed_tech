@@ -23,12 +23,17 @@ class AssessmentStartResponse(BaseModel):
     questions: list[AssessmentQuestion]
 
 class AssessmentSubmissionItem(BaseModel):
-    """Single answer submission with question context."""
+    """
+    Single answer submission. Only ``question_id`` and ``answer`` are used;
+    grading is server-authoritative (see assessment_store). ``question``,
+    ``options`` and ``correct_answer`` are accepted for backward compatibility
+    but IGNORED — the server never trusts a client-supplied correct answer.
+    """
     question_id: str
-    question: str  # The question text
-    options: list[str]  # The options shown
     answer: str | list[str]  # Student's selected answer (string or list of strings)
-    correct_answer: str | list[str]  # The correct answer (first option or list)
+    question: str | None = None  # ignored (legacy)
+    options: list[str] | None = None  # ignored (legacy)
+    correct_answer: str | list[str] | None = None  # ignored (legacy) — server grades by stored key
 
 
 class AssessmentSubmitRequest(BaseModel):

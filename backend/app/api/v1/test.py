@@ -27,6 +27,8 @@ from app.schemas.test import (
 )
 from app.ai.agents.examiner import examiner_agent as question_generator, QuestionDifficulty
 from app.ai.agents.feedback import feedback_agent, FeedbackType
+from app.services.assessment_grading import prepare_question
+from app.services.assessment_store import persist_prepared, grade_submissions
 
 router = APIRouter(prefix="/tests", tags=["Tests"])
 
@@ -131,25 +133,52 @@ async def start_test(
             session_id=test_session_id
         )
         
-        # Convert to TestQuestion format
+        # Prepare each question server-side (shuffle + capture answer key, D1),
+        # persist the keys, and return only client-safe fields.
         questions: list[TestQuestion] = []
+        prepared_all = []
+        subtopic_names: dict[str, str] = {}
         q_idx = 0
-        
+
         for subtopic_idx, (topic_name, subtopic_name, count) in enumerate(topic_distribution):
             subtopic_obj = subtopics[subtopic_idx]
-            
+
             for _ in range(count):
                 if q_idx < len(questions_batch) and q_idx < TEST_QUESTIONS:
                     q_data = questions_batch[q_idx]
-                    questions.append(TestQuestion(
-                        question_id=f"test_q_{q_idx}_{uuid.uuid4().hex[:8]}",
+                    p = prepare_question(
                         question=q_data.question,
+                        answer=q_data.answer,
                         options=q_data.options or [],
+                        correct_answers=getattr(q_data, "correct_answers", None),
+                        question_type=getattr(q_data, "question_type", "multiple_choice"),
+                        difficulty=getattr(q_data, "difficulty", "easy"),
+                        subtopic_id=str(subtopic_obj.id),
+                        topic_id=str(topic.id),
+                    )
+                    prepared_all.append(p)
+                    subtopic_names[p.question_id] = subtopic_obj.name
+                    questions.append(TestQuestion(
+                        question_id=p.question_id,
+                        question=p.question,
+                        options=p.options,
                         subtopic_id=str(subtopic_obj.id),
                         subtopic_name=subtopic_obj.name
                     ))
                     q_idx += 1
-                    
+
+        await persist_prepared(
+            db,
+            session_id=test_session_id,
+            student_id=student.id,
+            origin="test",
+            prepared=prepared_all,
+            topic_id=topic.id,
+        )
+        await db.commit()
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error generating test questions: {e}")
         raise HTTPException(
@@ -189,53 +218,49 @@ async def submit_test(
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
     
-    # 2. Grade answers and generate explanations
+    # 2. Grade answers SERVER-SIDE against the stored key (D1); the client's
+    #    `correct_answer` on each item is ignored.
+    graded = await grade_submissions(
+        db,
+        student_id=student.id,
+        submissions=[
+            {"question_id": item.question_id, "answer": item.answer, "question": item.question}
+            for item in request.answers
+        ],
+    )
+
     correct_count = 0
     question_results: list[QuestionExplanation] = []
-    wrong_questions = []
-    
-    for item in request.answers:
-        # Handle list vs string comparison
-        if isinstance(item.answer, list):
-            u_set = {str(x).strip().lower() for x in item.answer}
-        else:
-            u_set = {str(item.answer).strip().lower()}
-            
-        if isinstance(item.correct_answer, list):
-            c_set = {str(x).strip().lower() for x in item.correct_answer}
-        else:
-            c_set = {str(item.correct_answer).strip().lower()}
-            
-        is_correct = u_set == c_set
-        
-        if is_correct:
+
+    for g in graded:
+        if g.is_correct:
             correct_count += 1
             question_results.append(QuestionExplanation(
-                question=item.question,
-                student_answer=item.answer,
-                correct_answer=item.correct_answer,
+                question=g.question,
+                student_answer=g.student_answer,
+                correct_answer=g.correct_answer,
                 is_correct=True,
                 explanation="Correct! Great job! ✓"
             ))
         else:
-            wrong_questions.append(item)
-            # Generate AI explanation for wrong answer
+            # Generate AI explanation for wrong answer (using the true key).
             explanation = await _generate_explanation(
-                question=item.question,
-                student_answer=item.answer,
-                correct_answer=item.correct_answer,
+                question=g.question,
+                student_answer=g.student_answer,
+                correct_answer=g.correct_answer,
                 topic_name=request.topic_name
             )
             question_results.append(QuestionExplanation(
-                question=item.question,
-                student_answer=item.answer,
-                correct_answer=item.correct_answer,
+                question=g.question,
+                student_answer=g.student_answer,
+                correct_answer=g.correct_answer,
                 is_correct=False,
                 explanation=explanation
             ))
-    
+
     # 3. Calculate score
-    score = (correct_count / len(request.answers)) * 100 if request.answers else 0
+    graded_total = len(graded)
+    score = (correct_count / graded_total) * 100 if graded_total else 0
     
     # 4. Generate AI-powered overall feedback
     try:
@@ -251,7 +276,7 @@ async def submit_test(
             topic=request.topic_name,
             score=score,
             correct=correct_count,
-            total=len(request.answers),
+            total=graded_total,
             questions_detail=questions_detail,
             grade=student.grade_level or 1
         )
@@ -271,8 +296,8 @@ async def submit_test(
             topic_name=request.topic_name,
             score=score,
             correct=correct_count,
-            total=len(request.answers),
-            wrong_count=len(wrong_questions)
+            total=graded_total,
+            wrong_count=graded_total - correct_count
         )
     
     # 5. Save result
@@ -280,7 +305,7 @@ async def submit_test(
         student_id=student.id,
         topic_id=topic.id,
         score=score,
-        total_questions=len(request.answers),
+        total_questions=graded_total,
         correct_questions=correct_count,
         duration_seconds=request.duration_seconds,
         details=[qr.model_dump() for qr in question_results],

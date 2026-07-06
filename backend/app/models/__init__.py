@@ -13,6 +13,7 @@ from app.models.favorite import StudentFavorite
 from app.models.assessment import AssessmentResult
 from app.models.exam import ExamResult
 from app.models.test import TestResult
+from app.models.question_instance import QuestionInstance
 from app.models.document import (
     UserDocument,
     DocumentChunk,
@@ -50,6 +51,7 @@ __all__ = [
     "AssessmentResult",
     "ExamResult",
     "TestResult",
+    "QuestionInstance",
     # Document models (RAG)
     "UserDocument",
     "DocumentChunk",

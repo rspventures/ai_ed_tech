@@ -35,11 +35,13 @@ class TestStartResponse(BaseModel):
 
 
 class TestAnswerItem(BaseModel):
-    """A single answer submission."""
+    """A single answer submission. Only question_id + answer are used; the
+    server grades against its stored key (question/correct_answer are legacy
+    and ignored)."""
     question_id: str
-    question: str
     answer: str | list[str]
-    correct_answer: str | list[str]
+    question: Optional[str] = None
+    correct_answer: str | list[str] | None = None  # ignored (legacy)
     subtopic_id: Optional[str] = None
 
 

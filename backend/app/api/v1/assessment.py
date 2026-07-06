@@ -26,6 +26,8 @@ from app.schemas.assessment import (
 )
 from app.ai.agents.examiner import examiner_agent as question_generator, QuestionDifficulty
 from app.ai.agents.feedback import feedback_agent, FeedbackType
+from app.services.assessment_grading import prepare_question
+from app.services.assessment_store import persist_prepared, grade_submissions
 
 router = APIRouter(prefix="/assessments", tags=["Assessments"])
 
@@ -92,7 +94,7 @@ async def start_assessment(
         
         # Session for tracking
         assessment_session_id = f"assessment_{uuid.uuid4().hex}"
-        
+
         # Generate ALL 5 questions in ONE batch
         questions_batch = await question_generator.generate_batch(
             subject=topic.name,
@@ -101,16 +103,43 @@ async def start_assessment(
             grade=student.grade_level or 1,
             session_id=assessment_session_id
         )
-        
-        # Convert to AssessmentQuestion format
-        for i, q_data in enumerate(questions_batch[:5]):
-            questions.append(AssessmentQuestion(
-                question_id=f"q_{i}_{uuid.uuid4().hex[:8]}",
-                question=q_data.question,
-                options=q_data.options or []
-            ))
 
-            
+        # Prepare each question server-side: shuffle options and capture the
+        # answer key (D1). The key is persisted; the client only sees options.
+        prepared = [
+            prepare_question(
+                question=q_data.question,
+                answer=q_data.answer,
+                options=q_data.options or [],
+                correct_answers=getattr(q_data, "correct_answers", None),
+                question_type=getattr(q_data, "question_type", "multiple_choice"),
+                difficulty=getattr(q_data, "difficulty", "easy"),
+            )
+            for q_data in questions_batch[:5]
+        ]
+
+        await persist_prepared(
+            db,
+            session_id=assessment_session_id,
+            student_id=student.id,
+            origin="assessment",
+            prepared=prepared,
+            subtopic_id=subtopic_id,
+            topic_id=topic_id,
+        )
+
+        questions = [
+            AssessmentQuestion(
+                question_id=p.question_id,
+                question=p.question,
+                options=p.options,
+                question_type=p.question_type,
+            )
+            for p in prepared
+        ]
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error generating assessment: {e}")
         raise HTTPException(
@@ -118,11 +147,14 @@ async def start_assessment(
             detail="Failed to generate assessment. Please try again."
         )
 
+    # Persist the answer keys before returning the questions.
+    await db.commit()
+
     # Include subtopic name in response if specified
     assessment_title = f"{topic.name}: {subtopic_name}" if subtopic else topic.name
 
     return AssessmentStartResponse(
-        assessment_id=uuid.uuid4().hex,  # Session ID
+        assessment_id=assessment_session_id,  # echoed back at submit for audit
         topic_name=assessment_title,
         questions=questions
     )
@@ -145,36 +177,46 @@ async def submit_assessment(
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
     
-    # 2. Grade each answer
+    # 2. Grade each answer SERVER-SIDE against the stored key (D1).
+    #    The client-supplied `correct_answer` on each item is ignored.
+    graded = await grade_submissions(
+        db,
+        student_id=student.id,
+        submissions=[
+            {"question_id": item.question_id, "answer": item.answer, "question": item.question}
+            for item in request.answers
+        ],
+    )
+
+    def _as_text(value) -> str:
+        return ", ".join(str(v) for v in value) if isinstance(value, list) else str(value)
+
     details: list[QuestionResultDetail] = []
     correct_count = 0
     questions_detail_for_ai = []
-    
-    for item in request.answers:
-        # Compare student answer with correct answer
-        is_correct = item.answer.strip().lower() == item.correct_answer.strip().lower()
-        
-        details.append(QuestionResultDetail(
-            question=item.question,
-            student_answer=item.answer,
-            correct_answer=item.correct_answer,
-            is_correct=is_correct,
-            explanation=""  # Will be part of overall feedback
-        ))
-        
-        if is_correct:
+
+    for g in graded:
+        if g.is_correct:
             correct_count += 1
-        
-        # Build detail string for AI analysis
-        status = "✓ Correct" if is_correct else "✗ Incorrect"
+
+        details.append(QuestionResultDetail(
+            question=g.question,
+            student_answer=_as_text(g.student_answer),
+            correct_answer=_as_text(g.correct_answer),
+            is_correct=g.is_correct,
+            explanation="" if g.found else "This question could not be verified.",
+        ))
+
+        result_label = "✓ Correct" if g.is_correct else "✗ Incorrect"
         questions_detail_for_ai.append(
-            f"Q: {item.question}\n"
-            f"   Student's Answer: {item.answer}\n"
-            f"   Correct Answer: {item.correct_answer}\n"
-            f"   Result: {status}"
+            f"Q: {g.question}\n"
+            f"   Student's Answer: {_as_text(g.student_answer)}\n"
+            f"   Correct Answer: {_as_text(g.correct_answer)}\n"
+            f"   Result: {result_label}"
         )
-    
-    score = (correct_count / len(request.answers)) * 100 if request.answers else 0
+
+    graded_total = len(graded)
+    score = (correct_count / graded_total) * 100 if graded_total else 0
     
     # 3. Generate AI Feedback using FeedbackAgent
     feedback_data = None
@@ -186,7 +228,7 @@ async def submit_assessment(
             topic=request.topic_name or topic.name,
             score=score,
             correct=correct_count,
-            total=len(request.answers),
+            total=graded_total,
             questions_detail="\n\n".join(questions_detail_for_ai),
             grade=student.grade_level or 1
         )
@@ -219,7 +261,7 @@ async def submit_assessment(
         student_id=student.id,
         topic_id=topic.id,
         score=score,
-        total_questions=len(request.answers),
+        total_questions=graded_total,
         correct_questions=correct_count,
         details=[d.model_dump() for d in details],
         feedback=feedback_data
