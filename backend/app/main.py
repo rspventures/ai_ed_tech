@@ -6,10 +6,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi import _rate_limit_exceeded_handler
 
 from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.database import init_db, run_sql_migrations
+from app.core.rate_limit import limiter
 
 
 @asynccontextmanager
@@ -81,16 +85,24 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.DEBUG else None,
         lifespan=lifespan,
     )
-    
-    # Configure CORS
+
+    # Rate limiting (Phase 0): register the shared limiter, its 429 handler, and
+    # the middleware that applies the global default limit to every route.
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    if settings.RATE_LIMIT_ENABLED:
+        app.add_middleware(SlowAPIMiddleware)
+
+    # Configure CORS. Credentials cannot be combined with a wildcard origin
+    # (browsers reject it and it is unsafe), so allow_credentials is derived.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
-        allow_credentials=True,
+        allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # Include API routes
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
     

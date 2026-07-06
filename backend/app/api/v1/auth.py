@@ -2,9 +2,11 @@
 AI Tutor Platform - Authentication API Routes
 Endpoints for registration, login, token refresh, and logout
 """
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.deps import CurrentUser, DbSession
+from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.schemas.user import (
     TokenRefresh,
     TokenResponse,
@@ -29,7 +31,9 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
     summary="Register a new user",
     description="Create a new parent account. Email verification is required before full access.",
 )
+@limiter.limit(settings.RATE_LIMIT_AUTH)
 async def register(
+    request: Request,
     user_data: UserCreate,
     db: DbSession,
 ) -> UserResponse:
@@ -52,7 +56,9 @@ async def register(
     summary="Authenticate user",
     description="Login with email and password to receive access and refresh tokens.",
 )
+@limiter.limit(settings.RATE_LIMIT_AUTH)
 async def login(
+    request: Request,
     credentials: UserLogin,
     db: DbSession,
 ) -> TokenResponse:
@@ -84,7 +90,9 @@ async def login(
     summary="Refresh access token",
     description="Use a valid refresh token to obtain new access and refresh tokens.",
 )
+@limiter.limit(settings.RATE_LIMIT_AUTH)
 async def refresh_token(
+    request: Request,
     token_data: TokenRefresh,
     db: DbSession,
 ) -> TokenResponse:

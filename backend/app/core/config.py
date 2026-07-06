@@ -5,24 +5,32 @@ Pydantic Settings for application configuration with environment variable suppor
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Sentinel default that must never be used in a deployed environment.
+INSECURE_SECRET_KEY_DEFAULT = "your-super-secret-key-change-in-production"
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
-    
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore"
     )
-    
+
     # Application
     APP_NAME: str = "AI Tutor Platform"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT == "production"
     
     # API
     API_V1_PREFIX: str = "/api/v1"
@@ -116,11 +124,50 @@ class Settings(BaseSettings):
     
     # CORS - stored as comma-separated string
     CORS_ORIGINS_STR: str = "http://localhost:3000,http://localhost:5173"
-    
+
     @property
     def CORS_ORIGINS(self) -> list[str]:
         """Parse CORS origins from comma-separated string."""
         return [origin.strip() for origin in self.CORS_ORIGINS_STR.split(",") if origin.strip()]
+
+    @property
+    def CORS_ALLOW_CREDENTIALS(self) -> bool:
+        """
+        Credentials MUST NOT be sent with a wildcard origin — browsers reject the
+        combination and it is a security anti-pattern. Only allow credentials when
+        explicit origins are configured.
+        """
+        return "*" not in self.CORS_ORIGINS
+
+    # Rate limiting (slowapi) — defense against brute-force and paid-endpoint abuse.
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_DEFAULT: str = "200/minute"          # global fallback per client IP
+    RATE_LIMIT_AUTH: str = "10/minute"              # login/register/refresh per IP
+    RATE_LIMIT_AI: str = "30/minute"                # LLM/image/TTS endpoints per IP
+    RATE_LIMIT_STORAGE_URI: str = ""                # e.g. redis://... ; empty = in-memory
+
+    @model_validator(mode="after")
+    def _enforce_secure_production(self) -> "Settings":
+        """Fail fast on insecure configuration in deployed (non-dev) environments."""
+        if self.ENVIRONMENT != "development":
+            problems: list[str] = []
+            if self.SECRET_KEY == INSECURE_SECRET_KEY_DEFAULT or len(self.SECRET_KEY) < 32:
+                problems.append(
+                    "SECRET_KEY must be set to a strong random value "
+                    "(>=32 chars, not the built-in default)"
+                )
+            if self.DEBUG:
+                problems.append("DEBUG must be false outside development")
+            if "*" in self.CORS_ORIGINS:
+                problems.append(
+                    "CORS_ORIGINS_STR must list explicit origins (no '*') outside development"
+                )
+            if problems:
+                raise ValueError(
+                    f"Insecure configuration for ENVIRONMENT={self.ENVIRONMENT}: "
+                    + "; ".join(problems)
+                )
+        return self
 
 
 @lru_cache
