@@ -1,0 +1,36 @@
+# Production overrides. Use together with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Requires these to be provided via the environment / a secrets manager (NOT the
+# checked-in dev defaults): SECRET_KEY (strong, >=32 chars), CORS_ORIGINS
+# (explicit origins), and all provider API keys. The backend fails fast at
+# startup if SECRET_KEY/DEBUG/CORS are left at insecure dev values while
+# ENVIRONMENT=production (see app/core/config.py).
+services:
+  backend:
+    # Use the image's gunicorn CMD (no --reload); the entrypoint still runs
+    # `alembic upgrade head` first.
+    command: null
+    environment:
+      - DEBUG=false
+      - ENVIRONMENT=production
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in production}
+      - CORS_ORIGINS_STR=${CORS_ORIGINS:?set explicit CORS origins in production}
+    restart: unless-stopped
+    volumes: []  # no source mounts in prod — code comes from the image
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    command: null
+    environment: []
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    volumes: []  # static bundle is baked into the image
+
+  postgres:
+    restart: unless-stopped
+  redis:
+    restart: unless-stopped
