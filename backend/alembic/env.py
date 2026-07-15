@@ -10,12 +10,12 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
+import app.models  # noqa: F401 — populates Base.metadata
 from alembic import context
 
 # Import the app metadata. Importing app.models registers every model on Base.
 from app.core.config import settings
 from app.core.database import Base
-import app.models  # noqa: F401 — populates Base.metadata
 
 config = context.config
 

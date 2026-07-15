@@ -30,7 +30,7 @@ async def test_register_duplicate_email(client: AsyncClient, sample_user_data):
     """Test that duplicate email registration fails."""
     # First registration
     await client.post("/api/v1/auth/register", json=sample_user_data)
-    
+
     # Second registration with same email
     response = await client.post("/api/v1/auth/register", json=sample_user_data)
     assert response.status_code == 400
@@ -42,7 +42,7 @@ async def test_login_success(client: AsyncClient, sample_user_data):
     """Test successful login."""
     # Register user first
     await client.post("/api/v1/auth/register", json=sample_user_data)
-    
+
     # Login
     response = await client.post("/api/v1/auth/login", json={
         "email": sample_user_data["email"],
@@ -60,7 +60,7 @@ async def test_login_invalid_credentials(client: AsyncClient, sample_user_data):
     """Test login with invalid credentials."""
     # Register user first
     await client.post("/api/v1/auth/register", json=sample_user_data)
-    
+
     # Login with wrong password
     response = await client.post("/api/v1/auth/login", json={
         "email": sample_user_data["email"],
@@ -79,7 +79,7 @@ async def test_get_current_user(client: AsyncClient, sample_user_data):
         "password": sample_user_data["password"],
     })
     token = login_response.json()["access_token"]
-    
+
     # Get current user
     response = await client.get(
         "/api/v1/auth/me",
@@ -90,7 +90,7 @@ async def test_get_current_user(client: AsyncClient, sample_user_data):
     assert data["email"] == sample_user_data["email"]
 
 
-@pytest.mark.asyncio  
+@pytest.mark.asyncio
 async def test_refresh_token(client: AsyncClient, sample_user_data):
     """Test token refresh."""
     # Register and login
@@ -100,7 +100,7 @@ async def test_refresh_token(client: AsyncClient, sample_user_data):
         "password": sample_user_data["password"],
     })
     refresh_token = login_response.json()["refresh_token"]
-    
+
     # Refresh tokens
     response = await client.post("/api/v1/auth/refresh", json={
         "refresh_token": refresh_token
