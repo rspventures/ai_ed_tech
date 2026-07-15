@@ -1,0 +1,15 @@
+# Normalize line endings. Text files use LF in the repo; git converts to the
+# platform default on checkout for most files, but scripts and Docker-consumed
+# files MUST stay LF or they break inside Linux containers.
+* text=auto eol=lf
+
+*.sh text eol=lf
+entrypoint.sh text eol=lf
+Dockerfile text eol=lf
+*.py text eol=lf
+
+# Binary / generated — never touch
+*.png binary
+*.jpg binary
+*.pem binary
+uv.lock -text
