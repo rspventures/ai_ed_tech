@@ -1,73 +1,86 @@
 """
-AI Tutor Platform - Test Configuration
-Pytest fixtures and configuration for testing
+AI Tutor Platform - Test Configuration (Phase 1).
+
+Fixtures run against a REAL Postgres (pgvector image) via testcontainers —
+the previous SQLite fixtures could not even create the schema (JSONB/UUID/
+Vector are Postgres-only, audit D11), so the suite never ran.
+
+Requires a running Docker daemon (locally: Docker Desktop; CI: the runner's
+Docker service).
 """
-import asyncio
-from collections.abc import AsyncGenerator, Generator
+import os
+
+# Test-environment knobs — MUST be set before importing the app, because the
+# rate limiter and config singletons are constructed at import time.
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+os.environ.setdefault("ENVIRONMENT", "development")
+os.environ.setdefault("LANGFUSE_ENABLED", "false")
+os.environ.setdefault("DEBUG", "false")
+
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from testcontainers.postgres import PostgresContainer
 
 from app.core.database import Base, get_db
-from app.core.config import settings
 from app.main import app
 
-
-# Test database URL (use SQLite for testing)
-TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
-
-# Create test engine
-test_engine = create_async_engine(
-    TEST_DATABASE_URL,
-    echo=False,
-)
-
-test_session_maker = async_sessionmaker(
-    test_engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+POSTGRES_IMAGE = "pgvector/pgvector:pg16"
 
 
 @pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Create an event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+def pg_container():
+    """One Postgres container for the whole test session."""
+    with PostgresContainer(POSTGRES_IMAGE) as pg:
+        yield pg
 
 
-@pytest_asyncio.fixture(scope="function")
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Create a fresh database session for each test."""
-    async with test_engine.begin() as conn:
+@pytest_asyncio.fixture
+async def db_engine(pg_container):
+    """Fresh schema per test: create_all before, drop_all after."""
+    url = pg_container.get_connection_url().replace("psycopg2", "asyncpg")
+    engine = create_async_engine(url, echo=False)
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
-    
-    async with test_session_maker() as session:
+    try:
+        yield engine
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+    finally:
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
+    """A session bound to the per-test schema."""
+    maker = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker() as session:
         yield session
-    
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
 
 
-@pytest_asyncio.fixture(scope="function")
+@pytest_asyncio.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
-    """Create a test client with database session override."""
-    
+    """HTTP test client with the app's DB dependency overridden."""
+
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
-    
+        # Mirror the app's get_db post-yield commit so write endpoints persist.
+        await db_session.commit()
+
     app.dependency_overrides[get_db] = override_get_db
-    
+
     async with AsyncClient(
         transport=ASGITransport(app=app),
-        base_url="http://test"
+        base_url="http://test",
     ) as ac:
         yield ac
-    
+
     app.dependency_overrides.clear()
 
 

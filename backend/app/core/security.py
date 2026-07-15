@@ -2,6 +2,7 @@
 AI Tutor Platform - Security Module
 JWT token handling and password hashing utilities
 """
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -51,12 +52,16 @@ def create_access_token(
         "sub": str(subject),
         "exp": expire,
         "iat": datetime.now(timezone.utc),
+        # jti makes every token unique even when minted within the same second
+        # (exp/iat are second-resolution, so tokens were previously identical —
+        # for refresh tokens that collided on the token_hash unique constraint).
+        "jti": uuid.uuid4().hex,
         "type": "access"
     }
-    
+
     if additional_claims:
         to_encode.update(additional_claims)
-    
+
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
@@ -78,9 +83,10 @@ def create_refresh_token(subject: str | int) -> str:
         "sub": str(subject),
         "exp": expire,
         "iat": datetime.now(timezone.utc),
+        "jti": uuid.uuid4().hex,  # uniqueness — see create_access_token
         "type": "refresh"
     }
-    
+
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
