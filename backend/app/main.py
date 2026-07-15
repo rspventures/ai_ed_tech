@@ -12,7 +12,6 @@ from slowapi import _rate_limit_exceeded_handler
 
 from app.api.v1 import api_router
 from app.core.config import settings
-from app.core.database import init_db, run_sql_migrations
 from app.core.rate_limit import limiter
 
 
@@ -32,13 +31,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Startup] Telemetry initialization skipped: {e}")
     
-    # Initialize database tables
-    await init_db()
-    print("[Startup] Database tables initialized")
-    
-    # Run SQL migrations (additive scripts that depend on base tables)
-    await run_sql_migrations()
-    print("[Startup] SQL migrations executed")
+    # Schema is owned by Alembic (Phase 1): `alembic upgrade head` runs in the
+    # container entrypoint before the app starts (see backend/entrypoint.sh).
+    # The app no longer calls create_all / run_sql_migrations at startup.
 
     # Initialize Langfuse Observability
     try:

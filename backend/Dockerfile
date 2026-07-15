@@ -34,6 +34,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 EXPOSE 8000
 
+# Entrypoint runs `alembic upgrade head` before the CMD (Alembic owns the schema).
+ENTRYPOINT ["./entrypoint.sh"]
+
 # Production default: gunicorn with uvicorn workers, no auto-reload.
 # The dev compose overrides this with `uvicorn --reload` (see docker-compose.yml).
 CMD ["gunicorn", "app.main:app", \
