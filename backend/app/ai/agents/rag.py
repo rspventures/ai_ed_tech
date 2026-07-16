@@ -524,16 +524,7 @@ IMPORTANT: The correct_answer MUST be the exact, complete text of the correct op
                         relevant_chunks = chunks[:3]
                     
                     span.set_attribute("rag.chunks_after_filter", len(relevant_chunks))
-                    
-                    # Step 3.5: Enhance with knowledge graph (Graph RAG)
-                    span.add_event("enhancing_with_graph")
-                    relevant_chunks = await self._enhance_with_graph(
-                        query=params["query"],
-                        chunks=relevant_chunks,
-                        user_id=params["user_id"],
-                        document_id=params.get("document_id"),
-                    )
-                
+
                 # Step 4: Generate response based on mode
                 if mode == RAGMode.QUIZ or mode == "quiz":
                     result = await self._generate_quiz(
@@ -643,94 +634,6 @@ IMPORTANT: The correct_answer MUST be the exact, complete text of the correct op
             )
             for r in results
         ]
-    
-    async def _enhance_with_graph(
-        self,
-        query: str,
-        chunks: List[RetrievedChunk],
-        user_id: str,
-        document_id: Optional[str] = None,
-    ) -> List[RetrievedChunk]:
-        """
-        Enhance retrieval results using knowledge graph traversal.
-        
-        Extracts entities from query, finds related entities in graph,
-        then retrieves additional chunks mentioning those entities.
-        
-        Args:
-            query: User's query
-            chunks: Initial retrieved chunks
-            user_id: User ID for access control
-            document_id: Optional document scope
-            
-        Returns:
-            Enhanced chunk list with graph-discovered content
-        """
-        try:
-            from app.services.graph_store import get_graph_store
-            
-            graph_store = get_graph_store()
-            if not await graph_store.is_available():
-                return chunks  # Graph not available, return original
-            
-            # Extract key terms from query for graph lookup
-            query_terms = self._extract_query_terms(query)
-            if not query_terms:
-                return chunks
-            
-            # Find related entities in graph
-            related = await graph_store.find_related_entities(
-                entity_names=query_terms,
-                max_hops=2,
-                limit=10,
-            )
-            
-            if not related:
-                return chunks
-            
-            # Get document IDs that contain related entities
-            related_doc_ids = set()
-            for entity in related:
-                if entity.get("document_id"):
-                    related_doc_ids.add(entity["document_id"])
-            
-            # If we found related documents, we could fetch additional chunks
-            # For now, just boost existing chunks that mention related entities
-            related_names = {e["name"].lower() for e in related}
-            
-            # Re-score chunks based on graph connections
-            for chunk in chunks:
-                chunk_text_lower = chunk.content.lower()
-                graph_boost = sum(
-                    0.1 for name in related_names 
-                    if name in chunk_text_lower
-                )
-                # Boost similarity score slightly for graph-connected chunks
-                chunk.similarity = min(1.0, chunk.similarity + graph_boost)
-            
-            # Re-sort by boosted similarity
-            chunks.sort(key=lambda c: c.similarity, reverse=True)
-            
-            return chunks
-            
-        except Exception as e:
-            print(f"[RAGAgent] Graph enhancement failed: {e}")
-            return chunks
-    
-    def _extract_query_terms(self, query: str) -> List[str]:
-        """Extract key terms from query for graph lookup."""
-        import re
-        # Simple extraction: split on spaces, remove short/common words
-        stop_words = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'what', 'why', 
-                     'how', 'when', 'where', 'who', 'which', 'this', 'that', 'can',
-                     'do', 'does', 'did', 'will', 'would', 'could', 'should', 'be',
-                     'been', 'being', 'have', 'has', 'had', 'to', 'of', 'in', 'for',
-                     'on', 'with', 'at', 'by', 'from', 'about', 'me', 'my', 'tell'}
-        
-        words = re.findall(r'\b[a-zA-Z]{3,}\b', query.lower())
-        terms = [w for w in words if w not in stop_words]
-        
-        return terms[:5]  # Limit to top 5 terms
     
     async def _apply_hyde_transformation(
         self,

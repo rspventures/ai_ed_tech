@@ -449,17 +449,11 @@ async def get_document_status(
                 current_step = step.name
                 break
     
-    # Count entities if available
+    # Graph RAG (Neo4j) was removed in Phase 2 — the entity graph was never
+    # populated in production, so this always reported 0. Kept in the response
+    # schema for API compatibility.
     entity_count = 0
-    try:
-        from app.services.graph_store import get_graph_store
-        graph_store = get_graph_store()
-        if await graph_store.is_available():
-            entities = await graph_store.get_document_entities(document_id)
-            entity_count = len(entities)
-    except Exception:
-        pass
-    
+
     return ProcessingStatusResponse(
         document_id=str(document.id),
         status=status_value,
