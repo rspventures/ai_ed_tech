@@ -19,7 +19,8 @@ dependencies = [
     "asyncpg==0.29.0",
     "psycopg2-binary==2.9.9",
     "redis==5.0.1",
-    "celery[redis]==5.3.6",
+    # celery removed (Phase 2): no Celery app ever existed; background jobs move
+    # to arq later in Phase 2.
     "python-jose[cryptography]==3.3.0",
     "passlib[bcrypt]==1.7.4",
     "bcrypt==4.0.1",
@@ -64,8 +65,8 @@ dependencies = [
     # Hybrid Search & Retrieval
     "rank-bm25>=0.2.2",
     "cohere>=5.0.0",
-    # Graph RAG (dormant; scheduled for deletion in Phase 2)
-    "neo4j>=5.15.0",
+    # neo4j removed (Phase 2): Graph RAG deleted — the entity graph was never
+    # populated. Curriculum hierarchy is metadata, not a graph.
     # Multimodal OCR
     "PyMuPDF>=1.24.0",
     # NOTE: openinference-instrumentation-langchain / openinference-semantic-

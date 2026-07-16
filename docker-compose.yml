@@ -35,50 +35,8 @@ services:
       timeout: 5s
       retries: 5
 
-  # Neo4j Graph Database (for Graph RAG)
-  neo4j:
-    image: neo4j:5.15-community
-    container_name: ai_tutor_neo4j
-    environment:
-      - NEO4J_AUTH=neo4j/password
-      - NEO4J_PLUGINS=["apoc"]
-    ports:
-      - "7474:7474" # Browser UI
-      - "7687:7687" # Bolt protocol
-    volumes:
-      - neo4j_data:/data
-    healthcheck:
-      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Arize Phoenix - RAG Metrics and Evaluation
-  phoenix:
-    image: arizephoenix/phoenix:latest
-    container_name: ai_tutor_phoenix
-    ports:
-      - "6006:6006" # Phoenix UI
-    environment:
-      - PHOENIX_WORKING_DIR=/mnt/data
-    volumes:
-      - phoenix_data:/mnt/data
-
-  # Jaeger - Distributed Tracing for Agent Observability
-  jaeger:
-    image: jaegertracing/all-in-one:1.53
-    container_name: ai_tutor_jaeger
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-    ports:
-      - "16686:16686" # Jaeger UI
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
-    healthcheck:
-      test: [ "CMD-SHELL", "wget --spider -q http://localhost:16686 || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # Phase 2 subtraction: removed neo4j (Graph RAG deleted), phoenix (dead RAG
+  # metrics), and jaeger (tracing consolidates onto Langfuse's OTLP endpoint).
 
   # ========================================
   # Langfuse v3 Stack
@@ -260,12 +218,8 @@ services:
       - CORS_ORIGINS_STR=*
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - COHERE_API_KEY=${COHERE_API_KEY}
-      - SARVAM_API_KEY=${SARVAM_API_KEY}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
-      # OpenTelemetry Configuration
       - OTEL_SERVICE_NAME=ai-tutor-backend
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
-      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
       # Langfuse LLM Observability
       - LANGFUSE_ENABLED=true
       - LANGFUSE_HOST=http://langfuse-web:3000
@@ -277,8 +231,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      jaeger:
         condition: service_healthy
       langfuse-web:
         condition: service_started
@@ -311,8 +263,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  neo4j_data:
-  phoenix_data:
   clickhouse_data:
   clickhouse_logs:
   minio_data:

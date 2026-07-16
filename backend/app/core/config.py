@@ -91,32 +91,13 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: int = 30
     LLM_MAX_RETRIES: int = 3
     
-    # Hybrid Search (Phase 7)
+    # Hybrid Search
     COHERE_API_KEY: str = ""  # For reranking - optional
-    
-    # Neo4j Graph Database (Phase 7 - Graph RAG)
-    NEO4J_URI: str = "bolt://neo4j:7687"
-    NEO4J_USER: str = "neo4j"
-    NEO4J_PASSWORD: str = "password"
-    
-    # Arize Phoenix (RAG Metrics)
-    PHOENIX_ENABLED: bool = True
-    PHOENIX_ENDPOINT: str = "http://phoenix:6006"
-    
-    # Sarvam AI (Multilingual Voice)
-    SARVAM_API_KEY: str = ""
-    SARVAM_STT_MODEL: str = "saaras:v2.5"  # Speech-to-English
-    SARVAM_TRANSLATE_MODEL: str = "sarvam-translate:v1"
-    SARVAM_TTS_MODEL: str = "bulbul:v2"
-    SARVAM_TTS_SPEAKER: str = "vidya"  # Clear teaching voice
-    SARVAM_TTS_PACE: float = 0.9  # Slightly slower for teaching
-    SARVAM_TTS_SAMPLE_RATE: int = 16000
-    
-    # OpenAI TTS (Text-to-Speech) - kept as fallback
-    OPENAI_TTS_MODEL: str = "tts-1"  # or "tts-1-hd" for higher quality
-    OPENAI_TTS_VOICE: str = "alloy"  # Warm, enthusiastic voice
-    OPENAI_TTS_SPEED: float = 1.15  # Slightly faster for natural pacing
-    
+
+    # NOTE (Phase 2 subtraction): Neo4j/Graph RAG, Arize Phoenix, Sarvam and the
+    # OpenAI-TTS fallback were removed. Their settings blocks are gone; ElevenLabs
+    # is the voice provider. Sarvam/Bhashini may return in Phase 5 for Indic voice.
+
     # ElevenLabs TTS (Primary - High Quality)
     ELEVENLABS_API_KEY: str = ""
     ELEVENLABS_VOICE: str = "rachel"  # Warm, friendly female voice
